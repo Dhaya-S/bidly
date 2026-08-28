@@ -1,0 +1,27 @@
+# ── Spring Boot ────────────────────────────────────────
+bidly_backend/.gradle/
+bidly_backend/build/
+bidly_backend/.env
+!bidly_backend/.env.example
+bidly_backend/out/
+bidly_backend/.idea/
+bidly_backend/*.iml
+
+# ── Flutter ────────────────────────────────────────────
+bidly_app/.dart_tool/
+bidly_app/.flutter-plugins
+bidly_app/.flutter-plugins-dependencies
+bidly_app/build/
+bidly_app/android/.gradle/
+bidly_app/android/local.properties
+bidly_app/android/key.properties
+bidly_app/android/app/google-services.json
+bidly_app/.idea/
+bidly_app/pubspec.lock
+
+# ── OS / IDE ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+*.iml

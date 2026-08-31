@@ -25,23 +25,36 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final notifier = ref.read(auctionProvider.notifier);
-      notifier.fetchAuctionDetails(widget.listingId);
-      notifier.fetchWallet();
-      notifier.startLivePolling(widget.listingId);
+      // Always connect WebSocket and fetch fresh details.
+      // initAuction is idempotent — if auctionDetails is already loaded for this listing
+      // it updates in the background without showing a loading spinner.
+      final existingDetails = ref.read(auctionProvider).auctionDetails;
+      if (existingDetails != null) {
+        // Details already loaded (e.g. navigated from PlaceBidScreen). Connect WS silently.
+        ref.read(auctionProvider.notifier).initAuctionSilent(widget.listingId);
+      } else {
+        ref.read(auctionProvider.notifier).initAuction(widget.listingId);
+      }
     });
   }
 
   @override
   void dispose() {
-    ref.read(auctionProvider.notifier).stopLivePolling();
+    ref.read(auctionProvider.notifier).disconnectWebSocket();
     super.dispose();
   }
 
   void _showIncreaseBidModal(BuildContext context, AuctionDetailsModel details, double currentHighest, double userBid) {
-    double newAmount = currentHighest + (details.minBidIncrement > 0 ? details.minBidIncrement : 1000);
+    final live = ref.read(auctionProvider).liveStatus;
+    final authoritativeHighest = live?.currentHighestBid ?? details.currentHighestBid;
+    final minInc = details.minBidIncrement > 0 ? details.minBidIncrement : 500.0;
+    double newAmount = authoritativeHighest + minInc;
+
     final wallet = ref.read(auctionProvider).wallet;
-    final balance = wallet?.availableBalance ?? 48000.0;
+    final availableBalance = wallet?.availableBalance ?? 0.0;
+
+    bool isPlacing = false;
+    String? modalError;
 
     showModalBottomSheet(
       context: context,
@@ -49,7 +62,11 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) {
-          final sufficient = balance >= newAmount;
+          // If user currently has active winning bid, they only need additional difference
+          final currentUserBid = live?.currentUserBid ?? details.currentUserBid ?? 0.0;
+          final isUserWinning = live?.isCurrentUserWinning ?? details.isCurrentUserWinning;
+          final additionalNeeded = isUserWinning ? (newAmount - currentUserBid) : newAmount;
+          final sufficient = availableBalance >= additionalNeeded;
 
           return Container(
             padding: const EdgeInsets.all(22),
@@ -90,7 +107,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Current highest: ${currencyFormatter.format(currentHighest)} • Min raise: ${currencyFormatter.format(currentHighest + details.minBidIncrement)}',
+                  'Current highest: ${currencyFormatter.format(authoritativeHighest)} • Min raise: ${currencyFormatter.format(authoritativeHighest + minInc)}',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 14),
@@ -98,13 +115,13 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                 // Quick Add Pills
                 Row(
                   children: [
+                    _buildModalQuickAdd('+₹500', () => setModalState(() => newAmount += 500)),
+                    const SizedBox(width: 8),
                     _buildModalQuickAdd('+₹1,000', () => setModalState(() => newAmount += 1000)),
                     const SizedBox(width: 8),
                     _buildModalQuickAdd('+₹2,000', () => setModalState(() => newAmount += 2000)),
                     const SizedBox(width: 8),
                     _buildModalQuickAdd('+₹5,000', () => setModalState(() => newAmount += 5000)),
-                    const SizedBox(width: 8),
-                    _buildModalQuickAdd('+₹10,000', () => setModalState(() => newAmount += 10000)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -124,7 +141,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                           Icon(sufficient ? Icons.check_circle_outline : Icons.error_outline, color: sufficient ? const Color(0xFF15803D) : const Color(0xFFB91C1C), size: 16),
                           const SizedBox(width: 6),
                           Text(
-                            sufficient ? 'Wallet has sufficient funds' : 'Insufficient wallet funds',
+                            sufficient ? 'Wallet has sufficient available funds' : 'Insufficient available funds',
                             style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w700, color: sufficient ? const Color(0xFF15803D) : const Color(0xFFB91C1C)),
                           ),
                         ],
@@ -133,13 +150,30 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Wallet Balance: ${currencyFormatter.format(balance)}', style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
-                          Text('New Bid: ${currencyFormatter.format(newAmount)}', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                          Text('Available: ${currencyFormatter.format(availableBalance)}', style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                          Text('Required: ${currencyFormatter.format(additionalNeeded)}', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                         ],
                       ),
                     ],
                   ),
                 ),
+
+                if (modalError != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Text(
+                      modalError!,
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFFB91C1C)),
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 20),
 
                 // Confirm Increase CTA
@@ -147,10 +181,34 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: sufficient
+                    onPressed: (sufficient && !isPlacing)
                         ? () async {
-                            Navigator.pop(ctx);
-                            await ref.read(auctionProvider.notifier).placeBid(widget.listingId, newAmount);
+                            setModalState(() {
+                              isPlacing = true;
+                              modalError = null;
+                            });
+
+                            final success = await ref.read(auctionProvider.notifier).placeBid(widget.listingId, newAmount);
+
+                            if (!ctx.mounted) return;
+
+                            if (success) {
+                              Navigator.pop(ctx);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Bid increased to ${currencyFormatter.format(newAmount)}!'),
+                                    backgroundColor: const Color(0xFF10B981),
+                                  ),
+                                );
+                              }
+                            } else {
+                              final err = ref.read(auctionProvider).errorMessage ?? 'Failed to place bid. Please try again.';
+                              setModalState(() {
+                                isPlacing = false;
+                                modalError = err;
+                              });
+                            }
                           }
                         : null,
                     style: ElevatedButton.styleFrom(
@@ -159,7 +217,9 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text('Confirm • ${currencyFormatter.format(newAmount)}', style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w800, fontSize: 15)),
+                    child: isPlacing
+                        ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : Text('Confirm • ${currencyFormatter.format(newAmount)}', style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w800, fontSize: 15)),
                   ),
                 ),
               ],
@@ -205,10 +265,24 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
           ElevatedButton(
             onPressed: () async {
               final nav = Navigator.of(ctx);
-              final parentContext = context;
               nav.pop();
-              await ref.read(auctionProvider.notifier).withdrawBid(widget.listingId);
-              if (mounted && parentContext.mounted) parentContext.pop();
+
+              final success = await ref.read(auctionProvider.notifier).withdrawBid(widget.listingId);
+              if (context.mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Bid successfully withdrawn. Funds returned to your wallet.'),
+                      backgroundColor: Color(0xFF10B981),
+                    ),
+                  );
+                } else {
+                  final err = ref.read(auctionProvider).errorMessage ?? 'Failed to withdraw bid';
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(err), backgroundColor: const Color(0xFFEF4444)),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
             child: const Text('Withdraw'),
@@ -247,7 +321,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     final watchingCount = live?.watchingCount ?? details.watchingCount;
     final timeLeft = live?.timeLeftFormatted ?? details.timeLeftFormatted;
 
-    final totalBalance = wallet?.balance ?? 48000.0;
+    final totalBalance = wallet?.balance ?? 0.0;
     final reservedBalance = isWinning ? userBid : (wallet?.reservedBalance ?? 0.0);
     final availableBalance = totalBalance - reservedBalance;
 

@@ -17,6 +17,21 @@ import '../../features/sell/screens/sell_type_screen.dart';
 import '../../features/sell/screens/sell_preview_screen.dart';
 import '../../features/sell/screens/sell_success_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
+import '../../features/profile/screens/personal_information_screen.dart';
+import '../../features/profile/screens/add_money_screen.dart';
+import '../../features/profile/screens/money_added_success_screen.dart';
+import '../../features/profile/screens/orders_screen.dart';
+import '../../features/profile/screens/product_history_screen.dart';
+import '../../features/profile/screens/notifications_screen.dart';
+import '../../features/profile/screens/privacy_security_screen.dart';
+import '../../features/profile/screens/help_support_screen.dart';
+import '../../features/profile/screens/my_listings_screen.dart';
+import '../../features/profile/screens/wishlist_screen.dart';
+import '../../features/profile/providers/wallet_provider.dart';
+import '../../features/profile/providers/orders_provider.dart';
+import '../../features/settings/screens/settings_screen.dart';
+import '../../features/chat/screens/messages_list_screen.dart';
+import '../../features/chat/screens/chat_detail_screen.dart';
 import '../../features/community/screens/communities_screen.dart';
 import '../../features/community/screens/explore_communities_screen.dart';
 import '../../features/community/screens/create_community_screen.dart';
@@ -30,6 +45,7 @@ import '../../features/auction/screens/auction_won_screen.dart';
 import '../../features/auction/screens/track_order_screen.dart';
 import '../../features/auction/screens/delivery_confirmation_screen.dart';
 import '../../features/auction/screens/review_rating_screen.dart';
+import '../../features/subscription/screens/seller_subscription_screen.dart';
 
 /// Placeholder screen for routes not yet implemented
 class PlaceholderScreen extends StatelessWidget {
@@ -226,22 +242,123 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return ReviewRatingScreen(orderId: id);
         },
       ),
+      // Chat & Messages Flow
       GoRoute(
         path: AppRoutes.chatList,
         name: 'chatList',
-        builder: (_, __) => const PlaceholderScreen('Chats'),
+        builder: (_, __) => const MessagesListScreen(),
       ),
       GoRoute(
         path: AppRoutes.chatConversation,
         name: 'chatConversation',
-        builder: (ctx, state) =>
-            PlaceholderScreen('Chat ${state.pathParameters['roomId']}'),
+        builder: (ctx, state) {
+          final thread = state.extra as ChatThreadModel? ??
+              const ChatThreadModel(
+                id: 'thread-default',
+                userName: 'Tech Deals Chennai',
+                userRole: 'Seller',
+                productSubject: 're: iPhone 13 Pro',
+                lastMessage: 'Ready to hand over iPhone 13 Pro',
+                timeAgo: '2m',
+                userInitials: 'TD',
+              );
+          return ChatDetailScreen(thread: thread);
+        },
       ),
+      // Profile Tab & Sub-flows
       GoRoute(
         path: AppRoutes.profile,
         name: 'profile',
         builder: (_, __) => const ProfileScreen(),
       ),
+      GoRoute(
+        path: AppRoutes.personalInfo,
+        name: 'personalInfo',
+        builder: (_, __) => const PersonalInformationScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.addMoney,
+        name: 'addMoney',
+        builder: (_, __) => const AddMoneyScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.moneyAddedSuccess,
+        name: 'moneyAddedSuccess',
+        builder: (ctx, state) {
+          final txn = state.extra as WalletTransaction? ??
+              WalletTransaction(
+                transactionId: 'BDW03794777',
+                amountAdded: 500,
+                updatedBalance: 38500,
+                status: 'SUCCESS',
+                timestamp: DateTime.now(),
+                paymentMethod: 'UPI',
+              );
+          return MoneyAddedSuccessScreen(transaction: txn);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.orders,
+        name: 'orders',
+        builder: (_, __) => const OrdersScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.productHistory,
+        name: 'productHistory',
+        builder: (ctx, state) {
+          final order = state.extra as OrderModel? ??
+              const OrderModel(
+                id: 'ord-chair',
+                orderNumber: 'ORD-2026-00841',
+                title: 'Ergonomic Study Chair',
+                price: 4200,
+                date: '3 Jun 2026',
+                sellerName: 'Home Essentials',
+              );
+          return ProductHistoryScreen(order: order);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.notifications,
+        name: 'notifications',
+        builder: (_, __) => const NotificationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.settings,
+        name: 'settings',
+        builder: (_, __) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.privacySecurity,
+        name: 'privacySecurity',
+        builder: (_, __) => const PrivacySecurityScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.helpSupport,
+        name: 'helpSupport',
+        builder: (_, __) => const HelpSupportScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.myListings,
+        name: 'myListings',
+        builder: (_, __) => const MyListingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.wishlist,
+        name: 'wishlist',
+        builder: (_, __) => const WishlistScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.savedListings,
+        name: 'savedListings',
+        builder: (_, __) => const WishlistScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.sellerSubscription,
+        name: 'sellerSubscription',
+        builder: (_, __) => const SellerSubscriptionScreen(),
+      ),
+      // Community
       GoRoute(
         path: AppRoutes.community,
         name: 'community',
@@ -264,21 +381,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final name = state.uri.queryParameters['name'] ?? 'Community';
           return CommunitySuccessScreen(communityName: name);
         },
-      ),
-      GoRoute(
-        path: AppRoutes.myListings,
-        name: 'myListings',
-        builder: (_, __) => const PlaceholderScreen('My Listings'),
-      ),
-      GoRoute(
-        path: AppRoutes.savedListings,
-        name: 'savedListings',
-        builder: (_, __) => const PlaceholderScreen('Saved Listings'),
-      ),
-      GoRoute(
-        path: AppRoutes.settings,
-        name: 'settings',
-        builder: (_, __) => const PlaceholderScreen('Settings'),
       ),
     ],
   );

@@ -8,6 +8,7 @@ import '../../posts/widgets/post_card.dart';
 import '../providers/reels_provider.dart';
 import '../widgets/reel_player_card.dart';
 
+import '../../../core/providers/live_location_provider.dart';
 import '../services/reels_controller_manager.dart';
 import 'main_shell_screen.dart';
 
@@ -18,20 +19,35 @@ class HomeFeedScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeFeedScreen> createState() => _HomeFeedScreenState();
 }
 
-class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
+class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBindingObserver {
   final ValueNotifier<int> _activeReelNotifier = ValueNotifier<int>(0);
   final PageController _pageController = PageController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(reelsProvider.notifier).fetchReels();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      ReelsControllerManager().pauseAll();
+    } else {
+      final selectedNavIndex = ref.read(selectedNavIndexProvider);
+      final isFeedTab = ref.read(reelsProvider).activeTab == 0;
+      if (selectedNavIndex == 0 && isFeedTab) {
+        ReelsControllerManager().resumeCurrent();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _activeReelNotifier.dispose();
     ReelsControllerManager().disposeAll();
@@ -46,16 +62,12 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
       }
     });
 
-    final authState = ref.watch(authProvider);
     final reelsState = ref.watch(reelsProvider);
     final postsState = ref.watch(postsProvider);
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
     final isHomeVisible = selectedNavIndex == 0;
-    final user = authState.user;
-
-    final locationText = (user?.city != null && user!.city!.isNotEmpty)
-        ? '${user.city}${user.state != null && user.state!.isNotEmpty ? ', TN' : ''}'
-        : 'Chennai, TN';
+    final liveLocation = ref.watch(liveLocationProvider);
+    final locationText = liveLocation.displayText;
 
     final isFeedTab = reelsState.activeTab == 0;
 
@@ -81,7 +93,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                   final reelIds = reelsState.reelListings.map((r) => r.id).toList();
                   ReelsControllerManager().setActiveIndex(idx, reelIds);
                   // Trigger background pre-fetch when approaching the end of the loaded reels
-                  if (idx >= reelsState.reelListings.length - 3) {
+                  if (idx >= reelsState.reelListings.length - 3 && reelsState.hasMore && !reelsState.isLoadingMore) {
                     ref.read(reelsProvider.notifier).fetchNextPage();
                   }
                 },
@@ -297,6 +309,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                             onTap: () {
                               ref.read(reelsProvider.notifier).setActiveTab(0);
                               ref.read(postsProvider.notifier).setActiveTab(0);
+                              ReelsControllerManager().resumeCurrent();
                             },
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 6),
@@ -332,6 +345,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
+                              ReelsControllerManager().pauseAll();
                               ref.read(reelsProvider.notifier).setActiveTab(1);
                               ref.read(postsProvider.notifier).setActiveTab(1);
                             },
@@ -485,41 +499,118 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
   void _showLocationPicker(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E232A),
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Select City / Location',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Real-Time Live Location',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(ctx),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF1F5F9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF475569)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // Current Live GPS Card
+              Consumer(
+                builder: (context, ref, _) {
+                  final liveLoc = ref.watch(liveLocationProvider);
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF86EFAC)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.my_location_rounded, color: Color(0xFF16A34A), size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Current GPS Location',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF15803D),
+                                ),
+                              ),
+                              Text(
+                                liveLoc.displayText,
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF14532D),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.location_city_rounded, color: Color(0xFF2DD4BF)),
-                title: const Text('Chennai, Tamil Nadu', style: TextStyle(color: Colors.white)),
-                onTap: () => Navigator.pop(ctx),
-              ),
-              ListTile(
-                leading: const Icon(Icons.location_city_rounded, color: Color(0xFF2DD4BF)),
-                title: const Text('Coimbatore, Tamil Nadu', style: TextStyle(color: Colors.white)),
-                onTap: () => Navigator.pop(ctx),
-              ),
-              ListTile(
-                leading: const Icon(Icons.location_city_rounded, color: Color(0xFF2DD4BF)),
-                title: const Text('Bengaluru, Karnataka', style: TextStyle(color: Colors.white)),
-                onTap: () => Navigator.pop(ctx),
+              // Refresh GPS CTA
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await ref.read(liveLocationProvider.notifier).fetchLiveLocation();
+                    ref.read(reelsProvider.notifier).fetchReels(isRefresh: true);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Live GPS location refreshed!'),
+                          backgroundColor: AppTheme.primary,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text(
+                    'Refresh Live Location via GPS',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
               ),
             ],
           ),

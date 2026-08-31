@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_theme.dart';
-import '../../auth/providers/auth_provider.dart';
+import '../../../core/providers/live_location_provider.dart';
 import '../providers/explore_provider.dart';
 import '../widgets/deal_near_you_card.dart';
 import '../widgets/top_seller_card.dart';
@@ -18,14 +18,16 @@ class ExploreScreen extends ConsumerStatefulWidget {
 class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   final _searchController = TextEditingController();
 
-  final List<Map<String, String>> _categories = [
-    {'name': 'All', 'icon': '?'},
-    {'name': 'Electronics', 'icon': '??'},
-    {'name': 'Furniture', 'icon': '???'},
-    {'name': 'Gaming', 'icon': '??'},
-    {'name': 'Books', 'icon': '??'},
-    {'name': 'Fashion', 'icon': '??'},
-    {'name': 'Vehicles', 'icon': '??'},
+  final List<Map<String, dynamic>> _categories = [
+    {'name': 'All', 'icon': Icons.grid_view_rounded},
+    {'name': 'Electronics', 'icon': Icons.phone_iphone_rounded},
+    {'name': 'Furniture', 'icon': Icons.chair_rounded},
+    {'name': 'Fashion', 'icon': Icons.checkroom_rounded},
+    {'name': 'Vehicles', 'icon': Icons.directions_car_rounded},
+    {'name': 'Books', 'icon': Icons.menu_book_rounded},
+    {'name': 'Sports', 'icon': Icons.fitness_center_rounded},
+    {'name': 'Gaming', 'icon': Icons.sports_esports_rounded},
+    {'name': 'Accessories', 'icon': Icons.watch_rounded},
   ];
 
   @override
@@ -39,137 +41,412 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   }
 
   void _showFilterModal(BuildContext context) {
+    final state = ref.read(exploreProvider);
+    String tempSortBy = state.sortBy;
+    String tempMethod = state.selectedSellingMethod;
+    String tempCondition = state.condition;
+    String tempCategory = state.selectedCategory;
+    int tempRadius = state.selectedRadiusKm;
+    final minPriceCtrl = TextEditingController(text: state.minPrice != null ? state.minPrice!.toInt().toString() : '');
+    final maxPriceCtrl = TextEditingController(text: state.maxPrice != null ? state.maxPrice!.toInt().toString() : '');
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Filter Marketplace',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.textPrimary,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Container(
+            height: MediaQuery.of(ctx).size.height * 0.88,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                // Modal Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Filters',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              setModalState(() {
+                                tempSortBy = 'relevance';
+                                tempMethod = 'ALL';
+                                tempCondition = 'ANY';
+                                tempCategory = 'All';
+                                tempRadius = 10;
+                                minPriceCtrl.clear();
+                                maxPriceCtrl.clear();
+                              });
+                            },
+                            child: const Text(
+                              'Reset',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFEF4444),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => Navigator.pop(ctx),
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF1F5F9),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF475569)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+                // Scrollable Filters Body
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 1. Sort By
+                        _buildFilterSectionTitle('Sort By'),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 10,
+                          children: [
+                            _buildSelectablePill('Relevance', 'relevance', tempSortBy == 'relevance', () {
+                              setModalState(() => tempSortBy = 'relevance');
+                            }),
+                            _buildSelectablePill('Price: Low to High', 'price_asc', tempSortBy == 'price_asc', () {
+                              setModalState(() => tempSortBy = 'price_asc');
+                            }),
+                            _buildSelectablePill('Price: High to Low', 'price_desc', tempSortBy == 'price_desc', () {
+                              setModalState(() => tempSortBy = 'price_desc');
+                            }),
+                            _buildSelectablePill('Newest First', 'newest', tempSortBy == 'newest', () {
+                              setModalState(() => tempSortBy = 'newest');
+                            }),
+                            _buildSelectablePill('Ending Soon', 'ending_soon', tempSortBy == 'ending_soon', () {
+                              setModalState(() => tempSortBy = 'ending_soon');
+                            }),
+                          ],
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        // 2. Listing Type
+                        _buildFilterSectionTitle('Listing Type'),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 10,
+                          children: [
+                            _buildSelectablePill('All', 'ALL', tempMethod == 'ALL', () {
+                              setModalState(() => tempMethod = 'ALL');
+                            }),
+                            _buildSelectablePill('Bidding', 'AUCTION', tempMethod == 'AUCTION', () {
+                              setModalState(() => tempMethod = 'AUCTION');
+                            }),
+                            _buildSelectablePill('Direct Buy', 'DIRECT_BUY', tempMethod == 'DIRECT_BUY', () {
+                              setModalState(() => tempMethod = 'DIRECT_BUY');
+                            }),
+                          ],
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        // 3. Price Range
+                        _buildFilterSectionTitle('Price Range (₹)'),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: TextField(
+                                  controller: minPriceCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Min',
+                                    hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Color(0xFF94A3B8)),
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              child: Text('—', style: TextStyle(fontSize: 16, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
+                            ),
+                            Expanded(
+                              child: Container(
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: TextField(
+                                  controller: maxPriceCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Max',
+                                    hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Color(0xFF94A3B8)),
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        // 4. Condition
+                        _buildFilterSectionTitle('Condition'),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 10,
+                          children: [
+                            _buildSelectablePill('Any', 'ANY', tempCondition == 'ANY', () {
+                              setModalState(() => tempCondition = 'ANY');
+                            }),
+                            _buildSelectablePill('New', 'NEW', tempCondition == 'NEW', () {
+                              setModalState(() => tempCondition = 'NEW');
+                            }),
+                            _buildSelectablePill('Like New', 'LIKE_NEW', tempCondition == 'LIKE_NEW', () {
+                              setModalState(() => tempCondition = 'LIKE_NEW');
+                            }),
+                            _buildSelectablePill('Good', 'GOOD', tempCondition == 'GOOD', () {
+                              setModalState(() => tempCondition = 'GOOD');
+                            }),
+                            _buildSelectablePill('Fair', 'FAIR', tempCondition == 'FAIR', () {
+                              setModalState(() => tempCondition = 'FAIR');
+                            }),
+                          ],
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        // 5. Category (2-Column Grid of Pills)
+                        _buildFilterSectionTitle('Category'),
+                        const SizedBox(height: 10),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final itemWidth = (constraints.maxWidth - 10) / 2;
+                            final cats = [
+                              'Electronics',
+                              'Furniture',
+                              'Fashion',
+                              'Vehicles',
+                              'Books',
+                              'Sports',
+                              'Gaming',
+                              'Accessories',
+                            ];
+                            return Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: cats.map((cat) {
+                                final isSelected = tempCategory == cat;
+                                return SizedBox(
+                                  width: itemWidth,
+                                  child: _buildSelectablePill(
+                                    cat,
+                                    cat,
+                                    isSelected,
+                                    () {
+                                      setModalState(() {
+                                        tempCategory = (tempCategory == cat) ? 'All' : cat;
+                                      });
+                                    },
+                                    isExpanded: true,
+                                  ),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        // 6. Distance
+                        _buildFilterSectionTitle('Distance'),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 10,
+                          children: [
+                            _buildSelectablePill('Any Distance', '0', tempRadius == 0, () {
+                              setModalState(() => tempRadius = 0);
+                            }),
+                            _buildSelectablePill('< 1 km', '1', tempRadius == 1, () {
+                              setModalState(() => tempRadius = 1);
+                            }),
+                            _buildSelectablePill('< 5 km', '5', tempRadius == 5, () {
+                              setModalState(() => tempRadius = 5);
+                            }),
+                            _buildSelectablePill('< 10 km', '10', tempRadius == 10, () {
+                              setModalState(() => tempRadius = 10);
+                            }),
+                            _buildSelectablePill('< 25 km', '25', tempRadius == 25, () {
+                              setModalState(() => tempRadius = 25);
+                            }),
+                          ],
+                        ),
+
+                        const SizedBox(height: 30),
+                      ],
                     ),
                   ),
-                  TextButton(
-                    onPressed: () {
-                      ref.read(exploreProvider.notifier).selectCategory('All');
-                      ref.read(exploreProvider.notifier).selectSellingMethod('ALL');
-                      ref.read(exploreProvider.notifier).setRadiusKm(10);
-                      Navigator.pop(ctx);
-                    },
-                    child: const Text('Reset All', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w700)),
+                ),
+
+                // Sticky Apply Filters Button
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
                   ),
-                ],
-              ),
-              const SizedBox(height: 14),
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final minVal = double.tryParse(minPriceCtrl.text.replaceAll(',', '').trim());
+                          final maxVal = double.tryParse(maxPriceCtrl.text.replaceAll(',', '').trim());
 
-              const Text(
-                'SELLING TYPE',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF64748B),
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Consumer(
-                builder: (context, ref, _) {
-                  final currentMethod = ref.watch(exploreProvider).selectedSellingMethod;
-                  return Row(
-                    children: [
-                      _buildFilterChip('ALL', 'All Items', currentMethod == 'ALL', () {
-                        ref.read(exploreProvider.notifier).selectSellingMethod('ALL');
-                      }),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('DIRECT_BUY', '? Direct Buy', currentMethod == 'DIRECT_BUY', () {
-                        ref.read(exploreProvider.notifier).selectSellingMethod('DIRECT_BUY');
-                      }),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('AUCTION', '?? Auctions', currentMethod == 'AUCTION', () {
-                        ref.read(exploreProvider.notifier).selectSellingMethod('AUCTION');
-                      }),
-                    ],
-                  );
-                },
-              ),
+                          ref.read(exploreProvider.notifier).applyFilters(
+                            sortBy: tempSortBy,
+                            sellingMethod: tempMethod,
+                            minPrice: minVal,
+                            maxPrice: maxVal,
+                            condition: tempCondition,
+                            category: tempCategory,
+                            radiusKm: tempRadius,
+                          );
 
-              const SizedBox(height: 18),
-              const Text(
-                'SEARCH RADIUS (DISTANCE)',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF64748B),
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Consumer(
-                builder: (context, ref, _) {
-                  final currentRadius = ref.watch(exploreProvider).selectedRadiusKm;
-                  final radiusOptions = [2, 5, 10, 25, 50];
-                  return Wrap(
-                    spacing: 8,
-                    children: radiusOptions.map((r) {
-                      final isSelected = currentRadius == r;
-                      return ChoiceChip(
-                        label: Text('$r km'),
-                        selected: isSelected,
-                        selectedColor: AppTheme.primary,
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : AppTheme.textPrimary,
-                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                        onSelected: (_) {
-                          ref.read(exploreProvider.notifier).setRadiusKm(r);
                           Navigator.pop(ctx);
                         },
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004E54),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: const Text(
+                          'Apply Filters',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildFilterChip(String value, String label, bool isSelected, VoidCallback onTap) {
+  Widget _buildFilterSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontFamily: 'Poppins',
+        fontSize: 15,
+        fontWeight: FontWeight.w800,
+        color: AppTheme.textPrimary,
+      ),
+    );
+  }
+
+  Widget _buildSelectablePill(
+    String label,
+    String value,
+    bool isSelected,
+    VoidCallback onTap, {
+    bool isExpanded = false,
+  }) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primary : const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF334155),
+          color: isSelected ? const Color(0xFF004E54) : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF004E54) : const Color(0xFFE2E8F0),
+            width: 1.2,
           ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF004E54).withValues(alpha: 0.2),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : null,
+        ),
+        alignment: isExpanded ? Alignment.center : null,
+        child: Row(
+          mainAxisSize: isExpanded ? MainAxisSize.max : MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isSelected) ...[
+              const Icon(Icons.check_rounded, size: 15, color: Colors.white),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                color: isSelected ? Colors.white : const Color(0xFF475569),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -178,14 +455,21 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     final exploreState = ref.watch(exploreProvider);
-    final user = ref.watch(authProvider).user;
+    final liveLoc = ref.watch(liveLocationProvider);
     final selectedCategory = exploreState.selectedCategory;
     final selectedMethod = exploreState.selectedSellingMethod;
     final radius = exploreState.selectedRadiusKm;
 
-    final locationStr = user?.city != null && user!.city!.isNotEmpty
-        ? '${user.city} ? ${radius}km'
-        : 'Near You ? ${radius}km';
+    final distText = radius == 0 ? 'Any distance' : '< ${radius}km';
+    final locationStr = '${liveLoc.displayText} • $distText';
+
+    final bool hasActiveFilters = selectedMethod != 'ALL' ||
+        selectedCategory != 'All' ||
+        radius != 10 ||
+        exploreState.sortBy != 'relevance' ||
+        exploreState.condition != 'ANY' ||
+        exploreState.minPrice != null ||
+        exploreState.maxPrice != null;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -342,7 +626,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                                 color: Colors.white,
                                 size: 22,
                               ),
-                              if (selectedMethod != 'ALL' || selectedCategory != 'All' || radius != 10)
+                              if (hasActiveFilters)
                                 Positioned(
                                   top: 10,
                                   right: 10,
@@ -375,8 +659,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final item = _categories[index];
-                      final catName = item['name']!;
-                      final catIcon = item['icon']!;
+                      final catName = item['name'] as String;
+                      final catIcon = item['icon'] as IconData;
                       final isSelected = selectedCategory == catName;
 
                       return GestureDetector(
@@ -385,16 +669,16 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                           duration: const Duration(milliseconds: 180),
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                           decoration: BoxDecoration(
-                            color: isSelected ? AppTheme.primary : Colors.white,
+                            color: isSelected ? const Color(0xFF004E54) : Colors.white,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: isSelected ? AppTheme.primary : const Color(0xFFE2E8F0),
+                              color: isSelected ? const Color(0xFF004E54) : const Color(0xFFE2E8F0),
                               width: 1.2,
                             ),
                             boxShadow: isSelected
                                 ? [
                                     BoxShadow(
-                                      color: AppTheme.primary.withValues(alpha: 0.25),
+                                      color: const Color(0xFF004E54).withValues(alpha: 0.25),
                                       blurRadius: 6,
                                       offset: const Offset(0, 2),
                                     )
@@ -405,7 +689,11 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(catIcon, style: const TextStyle(fontSize: 13)),
+                              Icon(
+                                catIcon,
+                                size: 15,
+                                color: isSelected ? Colors.white : const Color(0xFF004E54),
+                              ),
                               const SizedBox(width: 6),
                               Text(
                                 catName,
@@ -433,17 +721,16 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                     children: [
                       _buildMethodTab('ALL', 'All Items', selectedMethod == 'ALL'),
                       const SizedBox(width: 8),
-                      _buildMethodTab('DIRECT_BUY', '? Direct Buy', selectedMethod == 'DIRECT_BUY'),
+                      _buildMethodTab('DIRECT_BUY', 'Direct Buy', selectedMethod == 'DIRECT_BUY'),
                       const SizedBox(width: 8),
-                      _buildMethodTab('AUCTION', '?? Live Bids', selectedMethod == 'AUCTION'),
+                      _buildMethodTab('AUCTION', 'Live Bids', selectedMethod == 'AUCTION'),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 18),
 
-                // 5. Deals Near You Section
-                if (exploreState.dealsNearYou.isNotEmpty) ...[
+                // 5. Deals Near You Section (Shown when browsing overview)
+                if (!hasActiveFilters && exploreState.searchQuery.isEmpty && exploreState.dealsNearYou.isNotEmpty) ...[
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16.0),
                     child: Row(
@@ -479,8 +766,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                   const SizedBox(height: 22),
                 ],
 
-                // 6. Top Community Sellers Section
-                if (exploreState.topSellers.isNotEmpty) ...[
+                // 6. Top Community Sellers Section (Shown when browsing overview)
+                if (!hasActiveFilters && exploreState.searchQuery.isEmpty && exploreState.topSellers.isNotEmpty) ...[
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16.0),
                     child: Row(
@@ -521,8 +808,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                   const SizedBox(height: 22),
                 ],
 
-                // 7. Recently Viewed Section
-                if (exploreState.recentlyViewed.isNotEmpty) ...[
+                // 7. Recently Viewed Section (Shown when browsing overview)
+                if (!hasActiveFilters && exploreState.searchQuery.isEmpty && exploreState.recentlyViewed.isNotEmpty) ...[
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16.0),
                     child: Text(
@@ -552,15 +839,15 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                   const SizedBox(height: 22),
                 ],
 
-                // 8. Marketplace 2-Column Grid
+                // 8. Marketplace Feed Title & Count
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Marketplace Feed',
-                        style: TextStyle(
+                      Text(
+                        _getFeedTitle(selectedMethod, selectedCategory),
+                        style: const TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
@@ -568,13 +855,20 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                           letterSpacing: -0.3,
                         ),
                       ),
-                      Text(
-                        '${exploreState.marketplaceListings.length} products',
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${exploreState.marketplaceListings.length} items',
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF475569),
+                          ),
                         ),
                       ),
                     ],
@@ -631,7 +925,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                               physics: const NeverScrollableScrollPhysics(),
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
-                                childAspectRatio: 0.68,
+                                childAspectRatio: 0.58,
                                 crossAxisSpacing: 12,
                                 mainAxisSpacing: 12,
                               ),
@@ -643,7 +937,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                               },
                             ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 100),
               ],
             ),
           ),
@@ -674,5 +968,16 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
         ),
       ),
     );
+  }
+
+  String _getFeedTitle(String method, String category) {
+    if (category != 'All') {
+      if (method == 'AUCTION') return '$category • Live Bids';
+      if (method == 'DIRECT_BUY') return '$category • Direct Buy';
+      return '$category Marketplace';
+    }
+    if (method == 'AUCTION') return 'Live Bids & Auctions';
+    if (method == 'DIRECT_BUY') return 'Direct Buy Marketplace';
+    return 'Marketplace Feed';
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../services/reels_controller_manager.dart';
 import 'home_feed_screen.dart';
 import '../../explore/screens/explore_screen.dart';
 import '../../profile/screens/profile_screen.dart';
@@ -64,59 +65,65 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
         children: _pages,
       ),
       bottomNavigationBar: Container(
-        height: 68,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(
-            top: BorderSide(color: AppTheme.border.withValues(alpha: 0.8), width: 1),
+            top: BorderSide(color: Color(0xFFE2E8F0), width: 1.0),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
+              color: Color(0x0A000000),
               blurRadius: 8,
-              offset: const Offset(0, -2),
+              offset: Offset(0, -2),
             ),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            // Home Tab
-            _buildNavItem(
-              index: 0,
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home_rounded,
-              label: 'Home',
-            ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Home Tab
+                _buildNavItem(
+                  index: 0,
+                  icon: Icons.home_outlined,
+                  activeIcon: Icons.home_rounded,
+                  label: 'Home',
+                ),
 
-            // Explore Tab
-            _buildNavItem(
-              index: 1,
-              icon: Icons.search_rounded,
-              activeIcon: Icons.search_rounded,
-              label: 'Explore',
-            ),
+                // Explore Tab
+                _buildNavItem(
+                  index: 1,
+                  icon: Icons.search_rounded,
+                  activeIcon: Icons.search_rounded,
+                  label: 'Explore',
+                ),
 
-            // Center + Sell Button
-            _buildSellButton(),
+                // Center + Sell Button
+                _buildSellButton(),
 
-            // Community Tab (with notification badge '2')
-            _buildNavItem(
-              index: 3,
-              icon: Icons.people_outline_rounded,
-              activeIcon: Icons.groups_rounded,
-              label: 'Community',
-              badgeCount: 2,
-            ),
+                // Community Tab (with notification badge '2')
+                _buildNavItem(
+                  index: 3,
+                  icon: Icons.people_outline_rounded,
+                  activeIcon: Icons.people_rounded,
+                  label: 'Community',
+                  badgeCount: 2,
+                ),
 
-            // Profile Tab
-            _buildNavItem(
-              index: 4,
-              icon: Icons.person_outline_rounded,
-              activeIcon: Icons.person_rounded,
-              label: 'Profile',
+                // Profile Tab
+                _buildNavItem(
+                  index: 4,
+                  icon: Icons.person_outline_rounded,
+                  activeIcon: Icons.person_rounded,
+                  label: 'Profile',
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -133,12 +140,17 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
 
     return GestureDetector(
       onTap: () {
+        if (index != 0) {
+          ReelsControllerManager().pauseAll();
+        } else if (_currentIndex != 0) {
+          ReelsControllerManager().resumeCurrent();
+        }
         ref.read(selectedNavIndexProvider.notifier).state = index;
         setState(() => _currentIndex = index);
       },
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -148,13 +160,13 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
               children: [
                 Icon(
                   isActive ? activeIcon : icon,
-                  size: 24,
-                  color: isActive ? AppTheme.primary : AppTheme.textSecondary,
+                  size: 26,
+                  color: isActive ? const Color(0xFF004E54) : const Color(0xFF64748B),
                 ),
                 if (badgeCount != null && badgeCount > 0)
                   Positioned(
                     top: -4,
-                    right: -6,
+                    right: -7,
                     child: Container(
                       padding: const EdgeInsets.all(3),
                       decoration: const BoxDecoration(
@@ -162,8 +174,8 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
                         shape: BoxShape.circle,
                       ),
                       constraints: const BoxConstraints(
-                        minWidth: 15,
-                        minHeight: 15,
+                        minWidth: 16,
+                        minHeight: 16,
                       ),
                       child: Center(
                         child: Text(
@@ -171,7 +183,7 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
                           style: const TextStyle(
                             fontFamily: 'Poppins',
                             color: Colors.white,
-                            fontSize: 9,
+                            fontSize: 9.5,
                             fontWeight: FontWeight.w700,
                             height: 1.0,
                           ),
@@ -181,14 +193,14 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               label,
               style: TextStyle(
                 fontFamily: 'Poppins',
-                fontSize: 11,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                color: isActive ? AppTheme.primary : AppTheme.textSecondary,
+                fontSize: 11.5,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                color: isActive ? const Color(0xFF004E54) : const Color(0xFF64748B),
               ),
             ),
           ],
@@ -199,19 +211,24 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
 
   Widget _buildSellButton() {
     return GestureDetector(
-      onTap: () => context.push(AppRoutes.sell),
+      onTap: () {
+        ReelsControllerManager().pauseAll();
+        context.push(AppRoutes.sell);
+      },
+      behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 44,
-            height: 36,
+            width: 48,
+            height: 42,
             decoration: BoxDecoration(
-              color: AppTheme.primary,
-              borderRadius: BorderRadius.circular(12),
+              color: const Color(0xFF004E54),
+              borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: AppTheme.primary.withValues(alpha: 0.3),
+                  color: const Color(0xFF004E54).withValues(alpha: 0.28),
                   blurRadius: 8,
                   offset: const Offset(0, 3),
                 ),
@@ -221,18 +238,18 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
               child: Icon(
                 Icons.add_rounded,
                 color: Colors.white,
-                size: 24,
+                size: 26,
               ),
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           const Text(
             'Sell',
             style: TextStyle(
               fontFamily: 'Poppins',
-              fontSize: 11,
+              fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+              color: Color(0xFF64748B),
             ),
           ),
         ],

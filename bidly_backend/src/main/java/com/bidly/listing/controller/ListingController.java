@@ -56,13 +56,17 @@ public class ListingController {
     }
 
     /**
-     * GET /api/listings/search — Search and filter marketplace products with geospatial search radius
+     * GET /api/listings/search — Search and filter marketplace products with geospatial search radius, price, condition, sort
      */
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<ListingSummaryDto>>> searchListings(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String method,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) java.math.BigDecimal minPrice,
+            @RequestParam(required = false) java.math.BigDecimal maxPrice,
+            @RequestParam(required = false) String condition,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) Integer radiusKm,
@@ -70,7 +74,7 @@ public class ListingController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         List<ListingSummaryDto> results = listingService.searchListings(
-                q, category, method, lat, lng, radiusKm, currentUserId, page, size);
+                q, category, method, sortBy, minPrice, maxPrice, condition, lat, lng, radiusKm, currentUserId, page, size);
         return ResponseEntity.ok(ApiResponse.success(results));
     }
 
@@ -133,6 +137,26 @@ public class ListingController {
             desiredLiked = Boolean.FALSE;
         }
         ListingSummaryDto updated = listingService.toggleLikeListing(id, currentUserId, desiredLiked);
-        return ResponseEntity.ok(ApiResponse.success("Liked successfully", updated));
+        return ResponseEntity.ok(ApiResponse.success(updated));
+    }
+    /**
+     * GET /api/listings/my — List user's active, sold, and draft listings
+     */
+    @GetMapping("/my")
+    public ResponseEntity<ApiResponse<List<ListingSummaryDto>>> getMyListings(
+            @AuthenticationPrincipal UUID currentUserId,
+            @RequestParam(required = false) String status) {
+        List<ListingSummaryDto> my = listingService.getMyListings(currentUserId, status);
+        return ResponseEntity.ok(ApiResponse.success(my));
+    }
+
+    /**
+     * GET /api/listings/wishlist — List user's saved/wishlisted items
+     */
+    @GetMapping("/wishlist")
+    public ResponseEntity<ApiResponse<List<ListingSummaryDto>>> getWishlist(
+            @AuthenticationPrincipal UUID currentUserId) {
+        List<ListingSummaryDto> wishlist = listingService.getWishlist(currentUserId);
+        return ResponseEntity.ok(ApiResponse.success(wishlist));
     }
 }

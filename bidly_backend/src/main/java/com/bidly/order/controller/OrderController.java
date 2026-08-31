@@ -19,6 +19,15 @@ public class OrderController {
         this.orderService = orderService;
     }
 
+    @GetMapping
+    public ResponseEntity<ApiResponse<java.util.List<OrderSummaryDto>>> getOrders(
+            @AuthenticationPrincipal UUID currentUserId,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String role) {
+        java.util.List<OrderSummaryDto> orders = orderService.getUserOrders(currentUserId, source, role);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
     @GetMapping("/{orderId}")
     public ResponseEntity<ApiResponse<OrderSummaryDto>> getOrder(
             @PathVariable UUID orderId,

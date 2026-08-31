@@ -322,9 +322,15 @@ class SellNotifier extends StateNotifier<SellState> {
           '/media/upload',
           data: formData,
           options: Options(
-            sendTimeout: const Duration(minutes: 5),
-            receiveTimeout: const Duration(minutes: 5),
+            sendTimeout: const Duration(minutes: 2),
+            receiveTimeout: const Duration(minutes: 2),
           ),
+          onSendProgress: (count, total) {
+            if (total > 0) {
+              final pct = (count / total * 100).toInt();
+              debugPrint('[MEDIA_UPLOAD_PROGRESS] $folder: $pct% ($count/$total)');
+            }
+          },
         );
 
         if (response.data != null && response.data['success'] == true) {

@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
@@ -78,8 +79,12 @@ class OfferNotifier extends StateNotifier<OfferState> {
         state = state.copyWith(isSubmitting: false, errorMessage: msg);
         return false;
       }
+    } on DioException catch (e) {
+      final msg = e.response?.data?['message']?.toString() ?? e.message ?? 'Unable to submit offer';
+      state = state.copyWith(isSubmitting: false, errorMessage: msg);
+      return false;
     } catch (e) {
-      state = state.copyWith(isSubmitting: false, errorMessage: 'Unable to submit offer');
+      state = state.copyWith(isSubmitting: false, errorMessage: e.toString());
       return false;
     }
   }
@@ -108,8 +113,12 @@ class OfferNotifier extends StateNotifier<OfferState> {
         state = state.copyWith(isSubmitting: false, errorMessage: msg);
         return false;
       }
+    } on DioException catch (e) {
+      final msg = e.response?.data?['message']?.toString() ?? e.message ?? 'Unable to counter offer';
+      state = state.copyWith(isSubmitting: false, errorMessage: msg);
+      return false;
     } catch (e) {
-      state = state.copyWith(isSubmitting: false, errorMessage: 'Unable to counter offer');
+      state = state.copyWith(isSubmitting: false, errorMessage: e.toString());
       return false;
     }
   }
@@ -126,8 +135,12 @@ class OfferNotifier extends StateNotifier<OfferState> {
         state = state.copyWith(isSubmitting: false, errorMessage: 'Failed to reject offer');
         return false;
       }
+    } on DioException catch (e) {
+      final msg = e.response?.data?['message']?.toString() ?? e.message ?? 'Unable to reject offer';
+      state = state.copyWith(isSubmitting: false, errorMessage: msg);
+      return false;
     } catch (e) {
-      state = state.copyWith(isSubmitting: false, errorMessage: 'Unable to reject offer');
+      state = state.copyWith(isSubmitting: false, errorMessage: e.toString());
       return false;
     }
   }
@@ -160,8 +173,12 @@ class OfferNotifier extends StateNotifier<OfferState> {
         state = state.copyWith(isSubmitting: false, errorMessage: msg);
         return null;
       }
+    } on DioException catch (e) {
+      final msg = e.response?.data?['message']?.toString() ?? e.message ?? 'Unable to accept offer';
+      state = state.copyWith(isSubmitting: false, errorMessage: msg);
+      return null;
     } catch (e) {
-      state = state.copyWith(isSubmitting: false, errorMessage: 'Unable to accept offer');
+      state = state.copyWith(isSubmitting: false, errorMessage: e.toString());
       return null;
     }
   }

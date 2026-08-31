@@ -38,11 +38,11 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
     final details = auctionState.auctionDetails;
     final order = orderState.order;
 
-    final wonPrice = order?.wonAmount ?? details?.currentHighestBid ?? 43500.0;
-    final productTitle = order?.productTitle ?? details?.title ?? 'iPhone 13 Pro – 256GB';
-    final sellerName = order?.sellerName ?? details?.sellerName ?? 'Tech Deals Chennai';
-    final sellerRating = order?.sellerRating ?? details?.sellerRating ?? 4.9;
-    final sellerReviews = details?.sellerReviewsCount ?? 312;
+    final wonPrice = order?.wonAmount ?? details?.currentHighestBid ?? 0.0;
+    final productTitle = order?.productTitle ?? details?.title ?? '';
+    final sellerName = order?.sellerName ?? details?.sellerName ?? '';
+    final sellerRating = order?.sellerRating ?? details?.sellerRating ?? 0.0;
+    final sellerReviews = details?.sellerReviewsCount ?? 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),

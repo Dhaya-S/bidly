@@ -16,9 +16,9 @@ class ProfileState {
     this.isSaving = false,
     this.errorMessage,
     this.walletBalance = 0.0,
-    this.messagesCount = 3,
-    this.wishlistCount = 4,
-    this.ordersCount = 5,
+    this.messagesCount = 0,
+    this.wishlistCount = 0,
+    this.ordersCount = 0,
   });
 
   ProfileState copyWith({
@@ -123,6 +123,18 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
 
   void addWalletBalance(double amount) {
     state = state.copyWith(walletBalance: state.walletBalance + amount);
+  }
+
+  void updateWishlistCount(int count) {
+    state = state.copyWith(wishlistCount: count);
+  }
+
+  void updateOrdersCount(int count) {
+    state = state.copyWith(ordersCount: count);
+  }
+
+  void updateMessagesCount(int count) {
+    state = state.copyWith(messagesCount: count);
   }
 }
 

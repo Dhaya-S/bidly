@@ -31,6 +31,7 @@ class AuctionDetailsModel {
   final int sellerSalesCount;
   final String city;
   final String state;
+  final String? serverTimestamp;
   final List<BidHistoryItemModel> recentBids;
 
   AuctionDetailsModel({
@@ -66,6 +67,7 @@ class AuctionDetailsModel {
     required this.sellerSalesCount,
     required this.city,
     required this.state,
+    this.serverTimestamp,
     this.recentBids = const [],
   });
 
@@ -73,36 +75,37 @@ class AuctionDetailsModel {
     return AuctionDetailsModel(
       listingId: json['listingId'] ?? '',
       title: json['title'] ?? '',
-      productCondition: json['productCondition'] ?? 'LIKE_NEW',
+      productCondition: json['productCondition'] ?? '',
       primaryImageUrl: json['primaryImageUrl'],
       imageUrls: (json['imageUrls'] as List?)?.map((e) => e.toString()).toList() ?? [],
       startingBid: (json['startingBid'] as num?)?.toDouble() ?? 0.0,
       currentHighestBid: (json['currentHighestBid'] as num?)?.toDouble() ?? 0.0,
       minNextBid: (json['minNextBid'] as num?)?.toDouble() ?? 0.0,
-      minBidIncrement: (json['minBidIncrement'] as num?)?.toDouble() ?? 500.0,
+      minBidIncrement: (json['minBidIncrement'] as num?)?.toDouble() ?? 0.0,
       auctionEndTime: json['auctionEndTime'],
       secondsRemaining: json['secondsRemaining'] ?? 0,
-      timeLeftFormatted: json['timeLeftFormatted'] ?? '2h 14m',
+      timeLeftFormatted: json['timeLeftFormatted'] ?? '--:--',
       totalBids: json['totalBids'] ?? 0,
-      watchingCount: json['watchingCount'] ?? 284,
+      watchingCount: json['watchingCount'] ?? 0,
       highestBidderId: json['highestBidderId'],
-      highestBidderName: json['highestBidderName'] ?? 'Verified Bidder',
-      highestBidderTime: json['highestBidderTime'] ?? 'Just now',
+      highestBidderName: json['highestBidderName'] ?? '',
+      highestBidderTime: json['highestBidderTime'] ?? '',
       status: json['status'] ?? 'ACTIVE',
       isAuctionEnded: json['isAuctionEnded'] ?? false,
       isCurrentUserWinning: json['isCurrentUserWinning'] ?? false,
       currentUserBid: (json['currentUserBid'] as num?)?.toDouble(),
       currentUserRank: json['currentUserRank'],
-      winProbability: json['winProbability'] ?? 49,
+      winProbability: json['winProbability'] ?? 0,
       platformFee: (json['platformFee'] as num?)?.toDouble() ?? 0.0,
       totalPayable: (json['totalPayable'] as num?)?.toDouble() ?? 0.0,
       sellerId: json['sellerId'],
-      sellerName: json['sellerName'] ?? 'Tech Deals Chennai',
-      sellerRating: (json['sellerRating'] as num?)?.toDouble() ?? 4.9,
-      sellerReviewsCount: json['sellerReviewsCount'] ?? 312,
-      sellerSalesCount: json['sellerSalesCount'] ?? 48,
-      city: json['city'] ?? 'Chennai',
-      state: json['state'] ?? 'Tamil Nadu',
+      sellerName: json['sellerName'] ?? '',
+      sellerRating: (json['sellerRating'] as num?)?.toDouble() ?? 0.0,
+      sellerReviewsCount: json['sellerReviewsCount'] ?? 0,
+      sellerSalesCount: json['sellerSalesCount'] ?? 0,
+      city: json['city'] ?? '',
+      state: json['state'] ?? '',
+      serverTimestamp: json['serverTimestamp'],
       recentBids: (json['recentBids'] as List?)
               ?.map((e) => BidHistoryItemModel.fromJson(e as Map<String, dynamic>))
               .toList() ??
@@ -163,6 +166,7 @@ class AuctionLiveStatusModel {
   final double? behindByAmount;
   final String? highestBidderId;
   final String highestBidderName;
+  final String? serverTimestamp;
   final List<BidHistoryItemModel> liveBidFeed;
 
   AuctionLiveStatusModel({
@@ -182,6 +186,7 @@ class AuctionLiveStatusModel {
     this.behindByAmount,
     this.highestBidderId,
     required this.highestBidderName,
+    this.serverTimestamp,
     this.liveBidFeed = const [],
   });
 
@@ -191,9 +196,9 @@ class AuctionLiveStatusModel {
       currentHighestBid: (json['currentHighestBid'] as num?)?.toDouble() ?? 0.0,
       minNextBid: (json['minNextBid'] as num?)?.toDouble() ?? 0.0,
       totalBids: json['totalBids'] ?? 0,
-      watchingCount: json['watchingCount'] ?? 284,
+      watchingCount: json['watchingCount'] ?? 0,
       secondsRemaining: json['secondsRemaining'] ?? 0,
-      timeLeftFormatted: json['timeLeftFormatted'] ?? '2h 14m',
+      timeLeftFormatted: json['timeLeftFormatted'] ?? '--:--',
       status: json['status'] ?? 'ACTIVE',
       isAuctionEnded: json['isAuctionEnded'] ?? false,
       isCurrentUserWinning: json['isCurrentUserWinning'] ?? false,
@@ -202,7 +207,8 @@ class AuctionLiveStatusModel {
       currentUserRank: json['currentUserRank'],
       behindByAmount: (json['behindByAmount'] as num?)?.toDouble(),
       highestBidderId: json['highestBidderId'],
-      highestBidderName: json['highestBidderName'] ?? 'Verified Bidder',
+      highestBidderName: json['highestBidderName'] ?? '',
+      serverTimestamp: json['serverTimestamp'],
       liveBidFeed: (json['liveBidFeed'] as List?)
               ?.map((e) => BidHistoryItemModel.fromJson(e as Map<String, dynamic>))
               .toList() ??
@@ -355,24 +361,24 @@ class OrderModel {
       orderNumber: json['orderNumber'] ?? '',
       listingId: json['listingId'] ?? '',
       productTitle: json['productTitle'] ?? '',
-      productCondition: json['productCondition'] ?? 'LIKE_NEW',
+      productCondition: json['productCondition'] ?? '',
       primaryImageUrl: json['primaryImageUrl'],
       wonAmount: (json['wonAmount'] as num?)?.toDouble() ?? 0.0,
       platformFee: (json['platformFee'] as num?)?.toDouble() ?? 0.0,
       totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
       status: json['status'] ?? 'AUCTION_WON',
       paymentStatus: json['paymentStatus'] ?? 'IN_ESCROW',
-      courierPartner: json['courierPartner'] ?? 'Ekart Logistics',
+      courierPartner: json['courierPartner'],
       trackingNumber: json['trackingNumber'],
       estimatedDeliveryDate: json['estimatedDeliveryDate'],
       deliveredAt: json['deliveredAt'],
       buyerId: json['buyerId'] ?? '',
-      buyerName: json['buyerName'] ?? 'Buyer',
+      buyerName: json['buyerName'] ?? '',
       sellerId: json['sellerId'] ?? '',
-      sellerName: json['sellerName'] ?? 'Arun Tech Deals',
-      sellerRating: (json['sellerRating'] as num?)?.toDouble() ?? 4.9,
-      sellerSalesCount: json['sellerSalesCount'] ?? 312,
-      deliveryAddressFullName: json['deliveryAddressFullName'] ?? 'Recipient',
+      sellerName: json['sellerName'] ?? '',
+      sellerRating: (json['sellerRating'] as num?)?.toDouble() ?? 0.0,
+      sellerSalesCount: json['sellerSalesCount'] ?? 0,
+      deliveryAddressFullName: json['deliveryAddressFullName'] ?? '',
       deliveryAddressPhone: json['deliveryAddressPhone'] ?? '',
       deliveryAddressLine: json['deliveryAddressLine'] ?? '',
       deliveryAddressCity: json['deliveryAddressCity'] ?? '',
@@ -422,6 +428,62 @@ class OrderTrackingEventModel {
       eventTime: json['eventTime'],
       formattedTime: json['formattedTime'] ?? '',
       isCompleted: json['isCompleted'] ?? true,
+    );
+  }
+}
+
+class AuctionEventModel {
+  final String eventType;
+  final String listingId;
+  final double highestBid;
+  final String? highestBidderId;
+  final String highestBidderDisplayName;
+  final int totalBids;
+  final double minimumNextBid;
+  final double bidIncrement;
+  final String? auctionEndTime;
+  final int secondsRemaining;
+  final String auctionStatus;
+  final String serverTimestamp;
+  final List<BidHistoryItemModel> recentBids;
+  final int? watchingCount;
+
+  AuctionEventModel({
+    required this.eventType,
+    required this.listingId,
+    required this.highestBid,
+    this.highestBidderId,
+    required this.highestBidderDisplayName,
+    required this.totalBids,
+    required this.minimumNextBid,
+    required this.bidIncrement,
+    this.auctionEndTime,
+    required this.secondsRemaining,
+    required this.auctionStatus,
+    required this.serverTimestamp,
+    this.recentBids = const [],
+    this.watchingCount,
+  });
+
+  factory AuctionEventModel.fromJson(Map<String, dynamic> json) {
+    return AuctionEventModel(
+      eventType: json['eventType'] ?? 'BID_PLACED',
+      listingId: json['listingId'] ?? '',
+      highestBid: (json['highestBid'] as num?)?.toDouble() ?? 0.0,
+      highestBidderId: json['highestBidderId'],
+      highestBidderDisplayName: json['highestBidderDisplayName'] ?? '',
+      totalBids: json['totalBids'] ?? 0,
+      minimumNextBid: (json['minimumNextBid'] as num?)?.toDouble() ?? 0.0,
+      bidIncrement: (json['bidIncrement'] as num?)?.toDouble() ?? 0.0,
+      auctionEndTime: json['auctionEndTime'],
+      secondsRemaining: json['secondsRemaining'] ?? 0,
+      auctionStatus: json['auctionStatus'] ?? 'ACTIVE',
+      serverTimestamp: json['serverTimestamp'] ?? '',
+      recentBids: (json['recentBids'] as List?)
+              ?.map((e) => BidHistoryItemModel.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      watchingCount: json['watchingCount'],
     );
   }
 }

@@ -5,8 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../providers/profile_provider.dart';
+import '../../chat/providers/chat_provider.dart';
+import '../providers/notifications_provider.dart';
+import '../providers/wishlist_provider.dart';
+import '../providers/orders_provider.dart';
 import 'personal_information_screen.dart';
+import '../../subscription/screens/seller_subscription_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -72,126 +76,19 @@ class ProfileScreen extends ConsumerWidget {
     }
   }
 
-  void _showAddMoneyModal(BuildContext context, WidgetRef ref) {
-    final amountController = TextEditingController(text: '1000');
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 24,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-        ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Add Money to Wallet',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 20),
-                  onPressed: () => Navigator.pop(ctx),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Enter Amount (₹)',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: amountController,
-              keyboardType: TextInputType.number,
-              style: const TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-              decoration: const InputDecoration(
-                prefixText: '₹ ',
-                prefixStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [500, 1000, 2000, 5000].map((amt) {
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: OutlinedButton(
-                      onPressed: () => amountController.text = amt.toString(),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      child: Text('+$amt', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: () {
-                  final amt = double.tryParse(amountController.text) ?? 0.0;
-                  if (amt > 0) {
-                    ref.read(profileProvider.notifier).addWalletBalance(amt);
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('₹${amt.toStringAsFixed(0)} added to wallet!'),
-                        backgroundColor: AppTheme.success,
-                      ),
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-                child: const Text(
-                  'Add Funds Instantly',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
-    final profileState = ref.watch(profileProvider);
+    final notifState = ref.watch(notificationsProvider);
+    final chatListState = ref.watch(chatRoomListProvider);
+    final wishlistState = ref.watch(wishlistProvider);
+    final ordersState = ref.watch(ordersProvider);
+
+    final totalUnreadMessages = chatListState.rooms.fold<int>(0, (sum, r) => sum + r.unreadCount);
+    final messagesDisplayCount = totalUnreadMessages > 0 ? totalUnreadMessages : chatListState.rooms.length;
+    final wishlistDisplayCount = wishlistState.items.length;
+    final ordersDisplayCount = ordersState.totalOrdersCount;
+
     final user = authState.user;
 
     final userName = (user?.name != null && user!.name!.isNotEmpty) ? user.name! : 'Arjun Kumar';
@@ -221,7 +118,7 @@ class ProfileScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined, color: AppTheme.textPrimary, size: 22),
-            onPressed: () {},
+            onPressed: () => context.push(AppRoutes.settings),
           ),
           const SizedBox(width: 8),
         ],
@@ -234,8 +131,18 @@ class ProfileScreen extends ConsumerWidget {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+        child: RefreshIndicator(
+          color: const Color(0xFF004E54),
+          onRefresh: () async {
+            await Future.wait([
+              ref.read(wishlistProvider.notifier).fetchWishlist(),
+              ref.read(ordersProvider.notifier).fetchOrders(),
+              ref.read(chatRoomListProvider.notifier).fetchRooms(),
+            ]);
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
           child: Column(
             children: [
               // ── 1. User Profile Card ─────────────────────────────
@@ -366,7 +273,7 @@ class ProfileScreen extends ConsumerWidget {
                     const Divider(height: 1, color: AppTheme.border),
                     const SizedBox(height: 10),
                     Text(
-                      'Member since Jan 2025 • Buyer & Seller Account',
+                      'Member since Jan 2025 · Buyer & Seller Account',
                       style: TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 11,
@@ -429,7 +336,7 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
-                      onPressed: () => _showAddMoneyModal(context, ref),
+                      onPressed: () => context.push(AppRoutes.addMoney),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white.withValues(alpha: 0.25),
                         foregroundColor: Colors.white,
@@ -458,41 +365,41 @@ class ProfileScreen extends ConsumerWidget {
               // ── 3. Quick Metric Cards Row ────────────────────────
               Row(
                 children: [
-                  // Messages (3)
+                  // Messages
                   Expanded(
                     child: _buildMetricBox(
                       icon: Icons.chat_bubble_outline_rounded,
                       iconBg: const Color(0xFFE0F2FE),
                       iconColor: const Color(0xFF0284C7),
-                      count: profileState.messagesCount.toString(),
+                      count: messagesDisplayCount.toString(),
                       label: 'Messages',
                       onTap: () => context.push(AppRoutes.chatList),
                     ),
                   ),
                   const SizedBox(width: 10),
 
-                  // Wishlist (4)
+                  // Wishlist
                   Expanded(
                     child: _buildMetricBox(
                       icon: Icons.favorite_border_rounded,
                       iconBg: const Color(0xFFFFE4E6),
                       iconColor: const Color(0xFFF43F5E),
-                      count: profileState.wishlistCount.toString(),
+                      count: wishlistDisplayCount.toString(),
                       label: 'Wishlist',
-                      onTap: () {},
+                      onTap: () => context.push(AppRoutes.wishlist),
                     ),
                   ),
                   const SizedBox(width: 10),
 
-                  // Orders (5)
+                  // Orders
                   Expanded(
                     child: _buildMetricBox(
                       icon: Icons.shopping_bag_outlined,
                       iconBg: const Color(0xFFDCFCE7),
                       iconColor: const Color(0xFF16A34A),
-                      count: profileState.ordersCount.toString(),
+                      count: ordersDisplayCount.toString(),
                       label: 'Orders',
-                      onTap: () {},
+                      onTap: () => context.push(AppRoutes.orders),
                     ),
                   ),
                 ],
@@ -513,7 +420,7 @@ class ProfileScreen extends ConsumerWidget {
                       iconBg: const Color(0xFFE0F2FE),
                       iconColor: const Color(0xFF0284C7),
                       title: 'Messages',
-                      badgeCount: profileState.messagesCount,
+                      badgeCount: totalUnreadMessages > 0 ? totalUnreadMessages : (chatListState.rooms.isNotEmpty ? chatListState.rooms.length : null),
                       onTap: () => context.push(AppRoutes.chatList),
                     ),
                     _buildDivider(),
@@ -522,7 +429,8 @@ class ProfileScreen extends ConsumerWidget {
                       iconBg: const Color(0xFFFFEDD5),
                       iconColor: const Color(0xFFEA580C),
                       title: 'Notifications',
-                      onTap: () {},
+                      badgeCount: notifState.unreadCount > 0 ? notifState.unreadCount : null,
+                      onTap: () => context.push(AppRoutes.notifications),
                     ),
                     _buildDivider(),
                     _buildRowItem(
@@ -530,7 +438,7 @@ class ProfileScreen extends ConsumerWidget {
                       iconBg: const Color(0xFFF1F5F9),
                       iconColor: const Color(0xFF64748B),
                       title: 'Settings',
-                      onTap: () {},
+                      onTap: () => context.push(AppRoutes.settings),
                     ),
                     _buildDivider(),
                     _buildRowItem(
@@ -538,7 +446,7 @@ class ProfileScreen extends ConsumerWidget {
                       iconBg: const Color(0xFFDCFCE7),
                       iconColor: const Color(0xFF16A34A),
                       title: 'Privacy & Security',
-                      onTap: () {},
+                      onTap: () => context.push(AppRoutes.privacySecurity),
                     ),
                     _buildDivider(),
                     _buildRowItem(
@@ -546,7 +454,7 @@ class ProfileScreen extends ConsumerWidget {
                       iconBg: const Color(0xFFE0F2FE),
                       iconColor: const Color(0xFF0284C7),
                       title: 'Help & Support',
-                      onTap: () {},
+                      onTap: () => context.push(AppRoutes.helpSupport),
                     ),
                     _buildDivider(),
                     _buildRowItem(
@@ -554,7 +462,7 @@ class ProfileScreen extends ConsumerWidget {
                       iconBg: AppTheme.primarySoft,
                       iconColor: AppTheme.primary,
                       title: 'My Listings',
-                      onTap: () => context.push(AppRoutes.sell),
+                      onTap: () => context.push(AppRoutes.myListings),
                     ),
                   ],
                 ),
@@ -562,99 +470,116 @@ class ProfileScreen extends ConsumerWidget {
               const SizedBox(height: 14),
 
               // ── 5. Boost Your Listings Banner ────────────────────
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF004E54),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SellerSubscriptionScreen()),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF004E54),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.rocket_launch_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.rocket_launch_outlined,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text(
-                                'Boost Your Listings',
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFC107),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'PREMIUM',
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 6,
+                              runSpacing: 2,
+                              children: [
+                                const Text(
+                                  'Boost Your Listings',
                                   style: TextStyle(
                                     fontFamily: 'Poppins',
-                                    fontSize: 8.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF332600),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Get priority placement in Reels, Home Feed & Search',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 10.5,
-                              color: Colors.white.withValues(alpha: 0.8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFC107),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'PREMIUM',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF332600),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Priority placement in Reels, Feed & Search',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 10,
+                                color: Colors.white.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const SellerSubscriptionScreen()),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.25),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: const Size(64, 30),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () {},
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white.withValues(alpha: 0.25),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        minimumSize: const Size(76, 32),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                        ),
+                        child: const Text(
+                          'Plans',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      child: const Text(
-                        'View Plans',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 14),
@@ -693,8 +618,9 @@ class ProfileScreen extends ConsumerWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildMetricBox({
     required IconData icon,

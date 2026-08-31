@@ -28,15 +28,26 @@ public class WalletController {
     }
 
     /**
-     * Development / Demo top-up endpoint so tester can add bidding funds if balance is low
+     * Top-up endpoint with rich transaction details for Add Money flow
      */
     @PostMapping("/top-up")
-    public ResponseEntity<ApiResponse<WalletDto>> topUp(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> topUp(
             @AuthenticationPrincipal UUID currentUserId,
             @RequestBody Map<String, Object> body) {
-        BigDecimal amount = new BigDecimal(body.getOrDefault("amount", "10000").toString());
-        String desc = (String) body.getOrDefault("description", "Demo wallet top-up");
+        BigDecimal amount = new BigDecimal(body.getOrDefault("amount", "500").toString());
+        String paymentMethod = (String) body.getOrDefault("paymentMethod", "UPI");
+        String desc = (String) body.getOrDefault("description", "Wallet Top-up via " + paymentMethod);
         WalletDto dto = walletService.topUpFunds(currentUserId, amount, desc);
-        return ResponseEntity.ok(ApiResponse.success("Funds added successfully", dto));
+
+        String txnId = "BDW" + String.format("%08d", new java.util.Random().nextInt(90000000) + 10000000);
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("wallet", dto);
+        result.put("amountAdded", amount);
+        result.put("transactionId", txnId);
+        result.put("updatedBalance", dto.getBalance());
+        result.put("status", "SUCCESS");
+        result.put("timestamp", java.time.Instant.now().toString());
+
+        return ResponseEntity.ok(ApiResponse.success("Funds added successfully", result));
     }
 }

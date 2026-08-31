@@ -696,10 +696,10 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            _buildTagChip('? Local Pickup'),
-                            _buildTagChip('? Verified Item'),
-                            _buildTagChip('? Original Accessories'),
-                            _buildTagChip('? Negotiable'),
+                            _buildTagChip('Local Pickup'),
+                            _buildTagChip('Verified Item'),
+                            _buildTagChip('Original Accessories'),
+                            _buildTagChip('Negotiable'),
                           ],
                         ),
                       ],
@@ -785,7 +785,9 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                                       const Icon(Icons.star_rounded, color: Color(0xFFF59E0B), size: 16),
                                       const SizedBox(width: 4),
                                       Text(
-                                        '${listing.rating.toStringAsFixed(1)} ? 48 sales',
+                                        listing.rating > 0
+                                            ? listing.rating.toStringAsFixed(1)
+                                            : 'New Seller',
                                         style: const TextStyle(
                                           fontSize: 13,
                                           color: AppTheme.textSecondary,

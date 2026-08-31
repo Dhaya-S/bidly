@@ -65,6 +65,8 @@ class ApiClient {
   }
 
   Dio get dio => _dio;
+  String get baseUrl => _baseUrl;
+  String get wsUrl => '${_baseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://')}/ws';
 
   /// Save JWT after login.
   Future<void> saveToken(String token) =>

@@ -31,6 +31,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
     with TickerProviderStateMixin {
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
+  bool _firstFrameRendered = false;
   bool _isInitializing = false;
   bool _initFailed = false;
   bool _isMuted = false;
@@ -99,30 +100,78 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
   }
 
   void _checkPlaybackState(int activeIdx) {
-    final isCurrent = widget.isHomeVisible && (widget.itemIndex == activeIdx);
-    final isPreload = widget.isHomeVisible && (widget.itemIndex == activeIdx + 1);
-    final isPrevious = widget.isHomeVisible && (widget.itemIndex == activeIdx - 1);
+    if (!widget.isHomeVisible) {
+      if (_videoController != null) {
+        _videoController?.pause();
+        _detachControllerListener();
+      }
+      if (mounted && _isPlayingState) {
+        setState(() => _isPlayingState = false);
+      }
+      return;
+    }
+
+    final isCurrent = widget.itemIndex == activeIdx;
+    final isPreload = widget.itemIndex == activeIdx + 1;
+    final isPrevious = widget.itemIndex == activeIdx - 1;
     final isDistant = !isCurrent && !isPreload && !isPrevious;
 
     if (isCurrent) {
       _acquireVideo(autoPlay: true, activeIndex: activeIdx);
     } else if (isPreload) {
-      // Preload next video only when current video is already initialized
-      if (ReelsControllerManager().isControllerReady(widget.listing.id) ||
-          ReelsControllerManager().currentActiveIndex == activeIdx) {
-        _acquireVideo(autoPlay: false, activeIndex: activeIdx);
-      }
+      _acquireVideo(autoPlay: false, activeIndex: activeIdx);
     } else if (isPrevious) {
-      _videoController?.pause();
+      final controller = ReelsControllerManager().getController(widget.listing.id);
+      if (controller != null && controller.value.isInitialized) {
+        _videoController = controller;
+        _isVideoInitialized = true;
+        controller.pause();
+      }
       if (mounted && _isPlayingState) {
         setState(() => _isPlayingState = false);
       }
     } else if (isDistant) {
       if (_videoController != null || _isInitializing) {
-        ReelsControllerManager().releaseController(widget.listing.id);
+        _videoController?.pause();
+        _detachControllerListener();
         _videoController = null;
         _isVideoInitialized = false;
+        _firstFrameRendered = false;
         _isInitializing = false;
+      }
+    }
+  }
+
+  void _attachControllerListener(VideoPlayerController controller) {
+    controller.removeListener(_videoPlayerListener);
+    controller.addListener(_videoPlayerListener);
+  }
+
+  void _detachControllerListener() {
+    _videoController?.removeListener(_videoPlayerListener);
+  }
+
+  void _videoPlayerListener() {
+    final controller = _videoController;
+    if (controller == null || !mounted) return;
+
+    if (controller.value.isInitialized) {
+      final isPlaying = controller.value.isPlaying;
+      final hasPosition = controller.value.position > Duration.zero;
+
+      if ((isPlaying || hasPosition) && !_firstFrameRendered) {
+        final timing = ReelsControllerManager().getTiming(widget.listing.id);
+        timing?.markFirstFrame();
+        timing?.printSummary();
+
+        setState(() {
+          _firstFrameRendered = true;
+        });
+
+        // Trigger staged preload for next card once current is actively playing
+        if (widget.itemIndex == widget.activeNotifier.value) {
+          ReelsControllerManager().notifyCurrentReady(widget.itemIndex);
+        }
       }
     }
   }
@@ -130,6 +179,30 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
   void _acquireVideo({bool autoPlay = false, int? activeIndex}) {
     final rawReelUrl = widget.listing.reelUrl;
     if (rawReelUrl == null || rawReelUrl.trim().isEmpty) return;
+
+    // Check if manager already has a ready controller for this listing
+    final existing = ReelsControllerManager().getController(widget.listing.id);
+    if (existing != null && existing.value.isInitialized) {
+      _attachControllerListener(existing);
+      final hasPosition = existing.value.position > Duration.zero;
+      final isPlaying = existing.value.isPlaying;
+      setState(() {
+        _videoController = existing;
+        _isVideoInitialized = true;
+        _isInitializing = false;
+        _initFailed = false;
+        _isPlayingState = isPlaying;
+        if (hasPosition || isPlaying) {
+          _firstFrameRendered = true;
+        }
+      });
+      if (autoPlay) {
+        existing.setLooping(true);
+        existing.play();
+        ReelsControllerManager().notifyCurrentReady(widget.itemIndex);
+      }
+      return;
+    }
 
     if (_isInitializing) return;
     _isInitializing = true;
@@ -145,6 +218,9 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
       onReady: () {
         if (mounted) {
           final controller = ReelsControllerManager().getController(widget.listing.id);
+          if (controller != null) {
+            _attachControllerListener(controller);
+          }
           setState(() {
             _videoController = controller;
             _isVideoInitialized = controller != null && controller.value.isInitialized;
@@ -156,9 +232,11 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
       },
       onError: () {
         if (mounted) {
+          _detachControllerListener();
           setState(() {
             _videoController = null;
             _isVideoInitialized = false;
+            _firstFrameRendered = false;
             _isInitializing = false;
             _initFailed = true;
           });
@@ -166,6 +244,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
       },
     ).then((controller) {
       if (mounted && controller != null) {
+        _attachControllerListener(controller);
         setState(() {
           _videoController = controller;
           _isVideoInitialized = controller.value.isInitialized;
@@ -180,10 +259,10 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
   @override
   void dispose() {
     widget.activeNotifier.removeListener(_onActiveIndexChanged);
+    _detachControllerListener();
     _isInitializing = false;
     _heartAnimController.dispose();
     _playPauseAnimController.dispose();
-    ReelsControllerManager().releaseController(widget.listing.id);
     _videoController = null;
     super.dispose();
   }
@@ -332,19 +411,24 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                     : _buildPlaceholderBackground(),
                 // Show video on top if initialized (isolated with RepaintBoundary for 60fps GPU rendering)
                 if (_videoController != null && (_isVideoInitialized || _videoController!.value.isInitialized))
-                  RepaintBoundary(
-                    child: SizedBox.expand(
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        clipBehavior: Clip.hardEdge,
-                        child: SizedBox(
-                          width: _videoController!.value.size.width > 0
-                              ? _videoController!.value.size.width
-                              : 360,
-                          height: _videoController!.value.size.height > 0
-                              ? _videoController!.value.size.height
-                              : 640,
-                          child: VideoPlayer(_videoController!),
+                  AnimatedOpacity(
+                    opacity: _firstFrameRendered ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    curve: Curves.easeIn,
+                    child: RepaintBoundary(
+                      child: SizedBox.expand(
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          clipBehavior: Clip.hardEdge,
+                          child: SizedBox(
+                            width: _videoController!.value.size.width > 0
+                                ? _videoController!.value.size.width
+                                : 360,
+                            height: _videoController!.value.size.height > 0
+                                ? _videoController!.value.size.height
+                                : 640,
+                            child: VideoPlayer(_videoController!),
+                          ),
                         ),
                       ),
                     ),
@@ -790,7 +874,13 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                     child: SizedBox(
                       height: 46,
                       child: ElevatedButton(
-                        onPressed: () => context.push('/listing/${widget.listing.id}', extra: widget.listing),
+                        onPressed: () async {
+                          ReelsControllerManager().pauseAll();
+                          await context.push('/listing/${widget.listing.id}', extra: widget.listing);
+                          if (mounted && widget.isHomeVisible) {
+                            ReelsControllerManager().resumeCurrent();
+                          }
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF2A2F37),
                           foregroundColor: Colors.white,
@@ -815,11 +905,15 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                     child: SizedBox(
                       height: 46,
                       child: ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
+                          ReelsControllerManager().pauseAll();
                           if (isAuction) {
-                            context.push('/auction/${widget.listing.id}/bid');
+                            await context.push('/auction/${widget.listing.id}/bid');
                           } else {
-                            context.push('/chat/offer/${widget.listing.id}', extra: widget.listing);
+                            await context.push('/chat/offer/${widget.listing.id}', extra: widget.listing);
+                          }
+                          if (mounted && widget.isHomeVisible) {
+                            ReelsControllerManager().resumeCurrent();
                           }
                         },
                         style: ElevatedButton.styleFrom(

@@ -61,6 +61,8 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
   final ApiClient _apiClient;
   static const int _pageSize = 10;
   final Set<String> _inFlightLikes = {};
+  final Set<int> _requestedPages = {};
+  final Set<int> _completedPages = {};
   static List<ListingModel> _cachedReels = [];
   static Map<String, bool> _cachedLikedIds = {};
   static Map<String, int> _cachedLikesCounts = {};
@@ -94,18 +96,19 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
       return;
     }
 
+    // In-flight deduplication guard
+    if (_inFlightLikes.contains(listingId)) {
+      debugPrint('[LIKE_REQUEST] id=$listingId duplicate=in_flight_ignored');
+      return;
+    }
+    _inFlightLikes.add(listingId);
+
     final newLiked = targetLiked ?? !currentlyLiked;
     final newCount = newLiked
         ? currentCount + 1
         : (currentCount > 0 ? currentCount - 1 : 0);
 
-    // In-flight deduplication guard
-    if (_inFlightLikes.contains(listingId)) {
-      return;
-    }
-    _inFlightLikes.add(listingId);
-
-    debugPrint('[LIKE] id=$listingId optimistic=$newLiked count=$newCount');
+    debugPrint('[LIKE_REEL] listing=$listingId action=${targetLiked != null ? (targetLiked ? "like" : "unlike") : "toggle"} optimistic=$newLiked count=$newCount');
 
     // Optimistic update — instant UI response
     final newLikedIds = Map<String, bool>.from(state.likedIds)
@@ -125,16 +128,16 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
       if (response.data != null && response.data['success'] == true) {
         final data = response.data['data'] as Map<String, dynamic>?;
         if (data != null) {
-          final serverLiked = data['isLikedByMe'] as bool? ?? data['likedByMe'] as bool? ?? newLiked;
+          final serverLiked = data['isLikedByMe'] as bool? ?? data['likedByMe'] as bool? ?? data['liked'] as bool? ?? newLiked;
           final serverCount = (data['likesCount'] as num?)?.toInt() ?? newCount;
-          debugPrint('[LIKE] id=$listingId server=$serverLiked count=$serverCount');
+          debugPrint('[LIKE_REEL] listing=$listingId server=$serverLiked count=$serverCount');
           final confirmedLikedIds = Map<String, bool>.from(state.likedIds)..[listingId] = serverLiked;
           final confirmedCounts = Map<String, int>.from(state.likesCounts)..[listingId] = serverCount;
           state = state.copyWith(likedIds: confirmedLikedIds, likesCounts: confirmedCounts);
         }
       }
     } catch (e) {
-      debugPrint('[LIKE] id=$listingId rollback=true error=$e');
+      debugPrint('[LIKE_REEL] listing=$listingId rollback=true error=$e');
       final revertLikedIds = Map<String, bool>.from(state.likedIds)
         ..[listingId] = currentlyLiked;
       final revertCounts = Map<String, int>.from(state.likesCounts)
@@ -148,7 +151,6 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
 
   Future<void> fetchReels({bool isRefresh = false}) async {
     if (state.isLoading && !isRefresh) return;
-    if (!isRefresh && state.reelListings.isNotEmpty) return;
 
     if (state.reelListings.isEmpty || isRefresh) {
       state = state.copyWith(
@@ -158,6 +160,12 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
         hasMore: true,
       );
     }
+
+    _requestedPages.clear();
+    _completedPages.clear();
+    _requestedPages.add(0);
+
+    debugPrint('[REELS_PAGINATION] INITIAL page=0 size=$_pageSize');
 
     try {
       final response = await _apiClient.dio.get('/listings/reels?page=0&size=$_pageSize');
@@ -170,10 +178,11 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
                 item.reelUrl != null && item.reelUrl!.trim().isNotEmpty)
             .toList();
 
+        _completedPages.add(0);
+
         final updatedLikedIds = Map<String, bool>.from(state.likedIds);
         final updatedCounts = Map<String, int>.from(state.likesCounts);
         for (final r in videoReels) {
-          // Merge server state while preserving in-flight operations
           if (!_inFlightLikes.contains(r.id)) {
             updatedLikedIds[r.id] = r.isLikedByMe;
             updatedCounts[r.id] = r.likesCount;
@@ -184,22 +193,31 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
         _cachedLikedIds = updatedLikedIds;
         _cachedLikesCounts = updatedCounts;
 
+        final hasMore = videoReels.length >= _pageSize;
         state = state.copyWith(
           isLoading: false,
           reelListings: videoReels,
           currentPage: 0,
-          hasMore: videoReels.length >= _pageSize,
+          hasMore: hasMore,
           likedIds: updatedLikedIds,
           likesCounts: updatedCounts,
         );
+
+        debugPrint('[REELS_PAGINATION] SUCCESS page=0 received=${videoReels.length} totalLoaded=${videoReels.length} hasMore=$hasMore');
+        if (!hasMore) {
+          debugPrint('[REELS_PAGINATION] END_OF_FEED totalLoaded=${videoReels.length}');
+        }
       } else {
+        _requestedPages.remove(0);
         state = state.copyWith(
             isLoading: false, errorMessage: 'Failed to load feed');
       }
-    } catch (_) {
+    } catch (e) {
+      _requestedPages.remove(0);
+      debugPrint('[REELS_PAGINATION] ERROR page=0 error=$e');
       state = state.copyWith(
           isLoading: false,
-          errorMessage: 'Unable to connect to feed server');
+          errorMessage: state.reelListings.isEmpty ? 'Unable to connect to feed server' : null);
     }
   }
 
@@ -207,7 +225,19 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
     if (state.isLoading || state.isLoadingMore || !state.hasMore) return;
 
     final nextPage = state.currentPage + 1;
+
+    if (_requestedPages.contains(nextPage)) {
+      debugPrint('[REELS_PAGINATION] SKIP page=$nextPage reason=in_flight');
+      return;
+    }
+    if (_completedPages.contains(nextPage)) {
+      debugPrint('[REELS_PAGINATION] SKIP page=$nextPage reason=already_loaded');
+      return;
+    }
+
+    _requestedPages.add(nextPage);
     state = state.copyWith(isLoadingMore: true);
+    debugPrint('[REELS_PAGINATION] REQUEST page=$nextPage');
 
     try {
       final response = await _apiClient.dio.get('/listings/reels?page=$nextPage&size=$_pageSize');
@@ -219,6 +249,8 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
             .where((item) =>
                 item.reelUrl != null && item.reelUrl!.trim().isNotEmpty)
             .toList();
+
+        _completedPages.add(nextPage);
 
         final existingIds = state.reelListings.map((r) => r.id).toSet();
         final uniqueNew = newReels.where((r) => !existingIds.contains(r.id)).toList();
@@ -232,18 +264,29 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
           }
         }
 
+        final accumulated = [...state.reelListings, ...uniqueNew];
+        final hasMore = newReels.length >= _pageSize;
+
         state = state.copyWith(
           isLoadingMore: false,
           currentPage: nextPage,
-          hasMore: newReels.length >= _pageSize,
-          reelListings: [...state.reelListings, ...uniqueNew],
+          hasMore: hasMore,
+          reelListings: accumulated,
           likedIds: updatedLikedIds,
           likesCounts: updatedCounts,
         );
+
+        debugPrint('[REELS_PAGINATION] SUCCESS page=$nextPage received=${newReels.length} totalLoaded=${accumulated.length} hasMore=$hasMore');
+        if (!hasMore) {
+          debugPrint('[REELS_PAGINATION] END_OF_FEED totalLoaded=${accumulated.length}');
+        }
       } else {
+        _requestedPages.remove(nextPage);
         state = state.copyWith(isLoadingMore: false, hasMore: false);
       }
-    } catch (_) {
+    } catch (e) {
+      _requestedPages.remove(nextPage);
+      debugPrint('[REELS_PAGINATION] ERROR page=$nextPage error=$e');
       state = state.copyWith(isLoadingMore: false);
     }
   }

@@ -12,8 +12,12 @@ class ExploreState {
   final String? errorMessage;
   final String selectedCategory;
   final String selectedSellingMethod; // ALL, DIRECT_BUY, AUCTION
+  final String sortBy; // relevance, price_asc, price_desc, newest, ending_soon
+  final double? minPrice;
+  final double? maxPrice;
+  final String condition; // ANY, NEW, LIKE_NEW, GOOD, FAIR
+  final int selectedRadiusKm; // 0 = any distance, 1, 5, 10, 25
   final String searchQuery;
-  final int selectedRadiusKm;
   final List<ListingModel> dealsNearYou;
   final List<TopSellerModel> topSellers;
   final List<ListingModel> recentlyViewed;
@@ -29,8 +33,12 @@ class ExploreState {
     this.errorMessage,
     this.selectedCategory = 'All',
     this.selectedSellingMethod = 'ALL',
-    this.searchQuery = '',
+    this.sortBy = 'relevance',
+    this.minPrice,
+    this.maxPrice,
+    this.condition = 'ANY',
     this.selectedRadiusKm = 10,
+    this.searchQuery = '',
     this.dealsNearYou = const [],
     this.topSellers = const [],
     this.recentlyViewed = const [],
@@ -47,8 +55,13 @@ class ExploreState {
     String? errorMessage,
     String? selectedCategory,
     String? selectedSellingMethod,
-    String? searchQuery,
+    String? sortBy,
+    double? minPrice,
+    double? maxPrice,
+    bool clearPriceRange = false,
+    String? condition,
     int? selectedRadiusKm,
+    String? searchQuery,
     List<ListingModel>? dealsNearYou,
     List<TopSellerModel>? topSellers,
     List<ListingModel>? recentlyViewed,
@@ -64,8 +77,12 @@ class ExploreState {
       errorMessage: errorMessage,
       selectedCategory: selectedCategory ?? this.selectedCategory,
       selectedSellingMethod: selectedSellingMethod ?? this.selectedSellingMethod,
-      searchQuery: searchQuery ?? this.searchQuery,
+      sortBy: sortBy ?? this.sortBy,
+      minPrice: clearPriceRange ? null : (minPrice ?? this.minPrice),
+      maxPrice: clearPriceRange ? null : (maxPrice ?? this.maxPrice),
+      condition: condition ?? this.condition,
       selectedRadiusKm: selectedRadiusKm ?? this.selectedRadiusKm,
+      searchQuery: searchQuery ?? this.searchQuery,
       dealsNearYou: dealsNearYou ?? this.dealsNearYou,
       topSellers: topSellers ?? this.topSellers,
       recentlyViewed: recentlyViewed ?? this.recentlyViewed,
@@ -94,8 +111,27 @@ class ExploreNotifier extends StateNotifier<ExploreState> {
     final user = _ref.read(authProvider).user;
     final latParam = user?.latitude != null ? '&lat=${user!.latitude}' : '';
     final lngParam = user?.longitude != null ? '&lng=${user!.longitude}' : '';
-    final radiusParam = '&radiusKm=${state.selectedRadiusKm}';
+    final radiusParam = state.selectedRadiusKm > 0 ? '&radiusKm=${state.selectedRadiusKm}' : '';
     return '$latParam$lngParam$radiusParam';
+  }
+
+  String _buildFilterParams() {
+    final catParam = state.selectedCategory.trim().isEmpty || state.selectedCategory == 'All'
+        ? ''
+        : '&category=${Uri.encodeComponent(state.selectedCategory)}';
+    final methodParam = state.selectedSellingMethod == 'ALL'
+        ? ''
+        : '&method=${state.selectedSellingMethod}';
+    final sortParam = state.sortBy == 'relevance' ? '' : '&sortBy=${state.sortBy}';
+    final minParam = state.minPrice != null && state.minPrice! > 0 ? '&minPrice=${state.minPrice}' : '';
+    final maxParam = state.maxPrice != null && state.maxPrice! > 0 ? '&maxPrice=${state.maxPrice}' : '';
+    final condParam = state.condition.isEmpty || state.condition == 'ANY' || state.condition == 'ALL'
+        ? ''
+        : '&condition=${state.condition}';
+    final qParam = state.searchQuery.isEmpty ? '' : '&q=${Uri.encodeComponent(state.searchQuery)}';
+    final locParams = _buildLocationParams();
+
+    return '$catParam$methodParam$sortParam$minParam$maxParam$condParam$qParam$locParams';
   }
 
   Future<void> fetchExploreData({bool isRefresh = false}) async {
@@ -107,13 +143,10 @@ class ExploreNotifier extends StateNotifier<ExploreState> {
       state = state.copyWith(isLoading: true, errorMessage: null, currentPage: 0, hasMore: true);
     }
 
-    final locParams = _buildLocationParams();
-    final catParam = state.selectedCategory == 'All' ? '' : '&category=${state.selectedCategory}';
-    final methodParam = state.selectedSellingMethod == 'ALL' ? '' : '&method=${state.selectedSellingMethod}';
-    final qParam = state.searchQuery.isEmpty ? '' : '&q=${state.searchQuery}';
+    final filterParams = _buildFilterParams();
 
     // 1. Fetch Primary Marketplace Listings (10 items per page)
-    _apiClient.dio.get('/listings/search?page=0&size=10$catParam$methodParam$qParam$locParams').then((res) {
+    _apiClient.dio.get('/listings/search?page=0&size=10$filterParams').then((res) {
       if (res.data != null && res.data['success'] == true) {
         final list = res.data['data'] as List;
         final listings = list.map((j) => ListingModel.fromJson(j as Map<String, dynamic>)).toList();
@@ -133,6 +166,7 @@ class ExploreNotifier extends StateNotifier<ExploreState> {
     });
 
     // 2. Fetch Deals Near You independently
+    final locParams = _buildLocationParams();
     _apiClient.dio.get('/listings/deals-near-you?$locParams').then((res) {
       if (res.data != null && res.data['success'] == true) {
         final list = res.data['data'] as List;
@@ -165,13 +199,10 @@ class ExploreNotifier extends StateNotifier<ExploreState> {
 
     state = state.copyWith(isLoadingMore: true);
     final nextPage = state.currentPage + 1;
-    final locParams = _buildLocationParams();
-    final catParam = state.selectedCategory == 'All' ? '' : '&category=${state.selectedCategory}';
-    final methodParam = state.selectedSellingMethod == 'ALL' ? '' : '&method=${state.selectedSellingMethod}';
-    final qParam = state.searchQuery.isEmpty ? '' : '&q=${state.searchQuery}';
+    final filterParams = _buildFilterParams();
 
     try {
-      final res = await _apiClient.dio.get('/listings/search?page=$nextPage&size=10$catParam$methodParam$qParam$locParams');
+      final res = await _apiClient.dio.get('/listings/search?page=$nextPage&size=10$filterParams');
       if (res.data != null && res.data['success'] == true) {
         final list = res.data['data'] as List;
         final newItems = list.map((j) => ListingModel.fromJson(j as Map<String, dynamic>)).toList();
@@ -187,6 +218,40 @@ class ExploreNotifier extends StateNotifier<ExploreState> {
     } catch (_) {
       state = state.copyWith(isLoadingMore: false);
     }
+  }
+
+  void applyFilters({
+    required String sortBy,
+    required String sellingMethod,
+    double? minPrice,
+    double? maxPrice,
+    required String condition,
+    required String category,
+    required int radiusKm,
+  }) {
+    state = state.copyWith(
+      sortBy: sortBy,
+      selectedSellingMethod: sellingMethod,
+      minPrice: minPrice,
+      maxPrice: maxPrice,
+      clearPriceRange: (minPrice == null && maxPrice == null),
+      condition: condition,
+      selectedCategory: category,
+      selectedRadiusKm: radiusKm,
+    );
+    fetchExploreData(isRefresh: true);
+  }
+
+  void resetFilters() {
+    state = state.copyWith(
+      selectedCategory: 'All',
+      selectedSellingMethod: 'ALL',
+      sortBy: 'relevance',
+      clearPriceRange: true,
+      condition: 'ANY',
+      selectedRadiusKm: 10,
+    );
+    fetchExploreData(isRefresh: true);
   }
 
   void setRadiusKm(int radiusKm) {

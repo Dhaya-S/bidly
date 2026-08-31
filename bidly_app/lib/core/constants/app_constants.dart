@@ -56,8 +56,23 @@ abstract class AppRoutes {
   static const orderDeliveryConfirmation = '/orders/:id/delivery-confirmation';
   static const orderReview = '/orders/:id/review';
 
-  // Settings
+  // Settings & Profile Sub-flows
   static const settings = '/settings';
+  static const personalInfo = '/profile/personal-info';
+  static const privacySecurity = '/profile/privacy-security';
+  static const helpSupport = '/profile/help-support';
+  static const wishlist = '/profile/wishlist';
+  static const boostPlans = '/profile/boost';
+  static const sellerSubscription = '/seller-subscription';
+  static const notifications = '/notifications';
+
+  // Orders Flow
+  static const orders = '/orders';
+  static const productHistory = '/orders/:id/history';
+
+  // Wallet Flow
+  static const addMoney = '/wallet/add-money';
+  static const moneyAddedSuccess = '/wallet/success';
 }
 
 /// App-wide string constants.

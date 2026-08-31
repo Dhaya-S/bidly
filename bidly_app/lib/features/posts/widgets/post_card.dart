@@ -171,11 +171,30 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
   }
 
   void _triggerDoubleTapHeart() {
-    if (!widget.post.isLikedByMe) {
-      ref.read(postsProvider.notifier).toggleLike(widget.post.id);
+    final isCurrentlyLiked = ref.read(postsProvider).isLiked(widget.post.id, widget.post.isLikedByMe);
+    if (!isCurrentlyLiked) {
+      ref.read(postsProvider.notifier).toggleLike(
+        widget.post.id,
+        widget.post.likesCount,
+        targetLiked: true,
+        initialLiked: widget.post.isLikedByMe,
+      );
     }
     setState(() => _showHeartBurst = true);
     _heartAnimController.forward(from: 0.0);
+  }
+
+  void _handleSingleTapLike() {
+    final isCurrentlyLiked = ref.read(postsProvider).isLiked(widget.post.id, widget.post.isLikedByMe);
+    if (!isCurrentlyLiked) {
+      setState(() => _showHeartBurst = true);
+      _heartAnimController.forward(from: 0.0);
+    }
+    ref.read(postsProvider.notifier).toggleLike(
+      widget.post.id,
+      widget.post.likesCount,
+      initialLiked: widget.post.isLikedByMe,
+    );
   }
 
   String _formatTag(String tag) {
@@ -498,33 +517,40 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: Row(
               children: [
-                // Like Button & Count
-                GestureDetector(
-                  onTap: () => ref.read(postsProvider.notifier).toggleLike(post.id),
-                  child: Row(
-                    children: [
-                      AnimatedScale(
-                        scale: post.isLikedByMe ? 1.15 : 1.0,
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.elasticOut,
-                        child: Icon(
-                          post.isLikedByMe ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                          color: post.isLikedByMe ? AppTheme.error : AppTheme.textSecondary,
-                          size: 23,
-                        ),
+                // Like Button & Count (Targeted reactive subscription)
+                Consumer(
+                  builder: (context, ref, _) {
+                    final isLiked = ref.watch(postsProvider.select((s) => s.isLiked(post.id, post.isLikedByMe)));
+                    final count = ref.watch(postsProvider.select((s) => s.likesCount(post.id, post.likesCount)));
+
+                    return GestureDetector(
+                      onTap: _handleSingleTapLike,
+                      child: Row(
+                        children: [
+                          AnimatedScale(
+                            scale: isLiked ? 1.15 : 1.0,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.elasticOut,
+                            child: Icon(
+                              isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              color: isLiked ? AppTheme.error : AppTheme.textSecondary,
+                              size: 23,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$count',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: isLiked ? AppTheme.error : AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${post.likesCount}',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: post.isLikedByMe ? AppTheme.error : AppTheme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
                 const SizedBox(width: 24),
 

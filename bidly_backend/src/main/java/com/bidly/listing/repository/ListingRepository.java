@@ -20,8 +20,11 @@ public interface ListingRepository extends JpaRepository<Listing, UUID>, JpaSpec
     Page<Listing> findByStatusOrderByCreatedAtDesc(Listing.ListingStatus status, Pageable pageable);
 
     @EntityGraph(attributePaths = {"category", "seller"})
-    @Query("SELECT l FROM Listing l WHERE l.status = :status AND l.reelUrl IS NOT NULL AND TRIM(l.reelUrl) <> '' AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP) ORDER BY l.createdAt DESC")
+    @Query("SELECT l FROM Listing l WHERE l.status = :status AND (l.mediaProcessingStatus IS NULL OR l.mediaProcessingStatus = 'READY') AND l.reelUrl IS NOT NULL AND TRIM(l.reelUrl) <> '' AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP) ORDER BY l.createdAt DESC, l.id DESC")
     List<Listing> findActiveReels(@Param("status") Listing.ListingStatus status, Pageable pageable);
+
+    @Query("SELECT count(l) FROM Listing l WHERE l.status = :status AND (l.mediaProcessingStatus IS NULL OR l.mediaProcessingStatus = 'READY') AND l.reelUrl IS NOT NULL AND TRIM(l.reelUrl) <> '' AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP)")
+    long countActiveReels(@Param("status") Listing.ListingStatus status);
 
     @EntityGraph(attributePaths = {"category", "seller"})
     @Query("SELECT l FROM Listing l WHERE l.status = :status AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP) ORDER BY l.createdAt DESC")
@@ -50,7 +53,9 @@ public interface ListingRepository extends JpaRepository<Listing, UUID>, JpaSpec
     @Query("UPDATE Listing l SET l.likesCount = l.likesCount + 1 WHERE l.id = :id")
     void incrementLikes(@Param("id") UUID id);
 
-    @org.springframework.data.jpa.repository.Modifying
-    @Query("UPDATE Listing l SET l.likesCount = CASE WHEN l.likesCount > 0 THEN l.likesCount - 1 ELSE 0 END WHERE l.id = :id")
-    void decrementLikes(@Param("id") UUID id);
+    @EntityGraph(attributePaths = {"category", "seller"})
+    List<Listing> findBySellerIdOrderByCreatedAtDesc(UUID sellerId);
+
+    @EntityGraph(attributePaths = {"category", "seller"})
+    List<Listing> findBySellerIdAndStatusOrderByCreatedAtDesc(UUID sellerId, Listing.ListingStatus status);
 }

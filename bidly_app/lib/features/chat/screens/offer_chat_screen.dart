@@ -10,6 +10,10 @@ import '../models/chat_message_model.dart';
 import '../models/offer_model.dart';
 import '../providers/chat_provider.dart';
 import '../providers/offer_provider.dart';
+import '../widgets/reject_offer_bottom_sheet.dart';
+import '../widgets/schedule_meetup_bottom_sheet.dart';
+import '../widgets/buyer_show_otp_modal.dart';
+import 'seller_otp_verification_screen.dart';
 
 class OfferChatScreen extends ConsumerStatefulWidget {
   final String listingId;
@@ -656,6 +660,53 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
         children: [
           Column(
             children: [
+              // Auction Won / Finalized Banner
+              if ((listing?.sellingMethod.toUpperCase() == 'AUCTION') || (activeOffer?.isAccepted ?? false))
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  color: const Color(0xFF004E54),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.emoji_events, color: Color(0xFF5EEAD4), size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Auction Won · ₹${listingPrice.toInt()} · $listingTitle',
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 28,
+                        child: OutlinedButton(
+                          onPressed: () {
+                            if (activeOffer?.orderId != null) {
+                              context.push('/orders/${activeOffer!.orderId}/track');
+                            } else {
+                              context.push('/orders/listing/${widget.listingId}/track');
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFF5EEAD4), width: 1.2),
+                            foregroundColor: const Color(0xFF5EEAD4),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          child: const Text('Track', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // Mini Product Card
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -707,25 +758,92 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                         ],
                       ),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _showScheduleDialog,
-                      icon: const Icon(Icons.calendar_today_outlined, size: 14, color: AppTheme.primary),
-                      label: const Text(
-                        'Schedule',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.primary,
+                    if (activeOffer != null && activeOffer.orderId != null && activeOffer.isBuyer) ...[
+                      ElevatedButton.icon(
+                        onPressed: () => BuyerShowOtpModal.show(context, orderId: activeOffer.orderId!),
+                        icon: const Icon(Icons.lock_open_rounded, size: 13, color: Colors.white),
+                        label: const Text(
+                          'Show OTP',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004E54),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppTheme.primary),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ] else if (activeOffer != null && activeOffer.orderId != null && activeOffer.isSeller) ...[
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => ScheduleMeetupBottomSheet.show(context, orderId: activeOffer.orderId!),
+                            icon: const Icon(Icons.calendar_today_outlined, size: 12, color: Color(0xFF004E54)),
+                            label: const Text(
+                              'Schedule',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF004E54)),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF004E54)),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (ctx) => SellerOtpVerificationScreen(
+                                    orderId: activeOffer.orderId!,
+                                    buyerName: activeOffer.buyerName,
+                                    productTitle: activeOffer.listingTitle ?? 'Product',
+                                    productPrice: activeOffer.currentEffectiveAmount,
+                                    productImageUrl: activeOffer.listingImageUrl,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.check_circle_outline, size: 12, color: Colors.white),
+                            label: const Text(
+                              'Verify OTP',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF004E54),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
+                    ] else ...[
+                      OutlinedButton.icon(
+                        onPressed: _showScheduleDialog,
+                        icon: const Icon(Icons.calendar_today_outlined, size: 14, color: AppTheme.primary),
+                        label: const Text(
+                          'Schedule',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppTheme.primary),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1031,6 +1149,9 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
   Widget _buildOfferNegotiationBanner(OfferModel offer) {
     if (offer.isAccepted) {
+      final isBuyer = offer.isBuyer;
+      final isSeller = offer.isSeller;
+
       return Container(
         margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1039,38 +1160,91 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0xFF86EFAC)),
         ),
-        child: Row(
+        child: Column(
           children: [
-            const Icon(Icons.celebration_rounded, color: Color(0xFF15803D), size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Offer Accepted!',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF15803D)),
+            Row(
+              children: [
+                const Icon(Icons.celebration_rounded, color: Color(0xFF15803D), size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Offer Accepted!',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF15803D)),
+                      ),
+                      Text(
+                        'Agreed Price: ₹${offer.currentEffectiveAmount.toInt()}',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF166534)),
+                      ),
+                    ],
                   ),
-                  Text(
-                    'Agreed Price: ₹${offer.currentEffectiveAmount.toInt()}',
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF166534)),
+                ),
+                if (offer.orderId != null && isBuyer)
+                  ElevatedButton.icon(
+                    onPressed: () => BuyerShowOtpModal.show(context, orderId: offer.orderId!),
+                    icon: const Icon(Icons.lock_open_rounded, size: 13, color: Colors.white),
+                    label: const Text('Show OTP', style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w700)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF004E54),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+              ],
+            ),
+            if (offer.orderId != null && isSeller) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => ScheduleMeetupBottomSheet.show(context, orderId: offer.orderId!),
+                      icon: const Icon(Icons.calendar_today_outlined, size: 12, color: Color(0xFF004E54)),
+                      label: const Text('Schedule', style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF004E54))),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF004E54)),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (ctx) => SellerOtpVerificationScreen(
+                              orderId: offer.orderId!,
+                              buyerName: offer.buyerName,
+                              productTitle: offer.listingTitle ?? 'Product',
+                              productPrice: offer.currentEffectiveAmount,
+                              productImageUrl: offer.listingImageUrl,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.check_circle_outline, size: 12, color: Colors.white),
+                      label: const Text('Verify OTP', style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF004E54),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-            if (offer.orderId != null)
-              ElevatedButton(
-                onPressed: () => context.push('/orders/${offer.orderId}/track'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF15803D),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: const Text('View Order', style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w700)),
-              ),
+            ],
           ],
         ),
       );
@@ -1113,7 +1287,11 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => ref.read(offerProvider.notifier).rejectOffer(offer.id),
+                      onPressed: () => RejectOfferBottomSheet.show(
+                        context,
+                        offerId: offer.id,
+                        onRejected: () => ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId),
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFEF4444),
                         side: const BorderSide(color: Color(0xFFEF4444)),
@@ -1323,6 +1501,143 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
   Widget _buildMessageItem(ChatMessageModel msg, bool isMe, String sellerInitials, OfferModel? activeOffer) {
     final timeStr = msg.formattedTime;
+
+    if (msg.isShipmentDispatched) {
+      final meta = msg.parsedMetadata;
+      final trackingNum = meta?['trackingNumber']?.toString() ?? 'N/A';
+      final courierPartner = meta?['courierPartner']?.toString() ?? 'Courier';
+      final estDelivery = meta?['estimatedDeliveryDate']?.toString() ?? 'Estimated delivery TBD';
+      final orderId = meta?['orderId']?.toString();
+
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          width: 290,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.25), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF004E54),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.local_shipping_rounded, color: Color(0xFF5EEAD4), size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Shipment Dispatched',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Tracking No:',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                        Text(
+                          trackingNum,
+                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Courier:',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                        Text(
+                          courierPartner,
+                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Est. Delivery:',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                        Text(
+                          estDelivery,
+                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 40,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          if (orderId != null) {
+                            context.push('/orders/$orderId/track');
+                          } else {
+                            context.push('/orders/listing/${widget.listingId}/track');
+                          }
+                        },
+                        icon: const Icon(Icons.gps_fixed_rounded, size: 16),
+                        label: const Text(
+                          'Track My Order',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004E54),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        timeStr,
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (msg.isOffer) {
       return Container(

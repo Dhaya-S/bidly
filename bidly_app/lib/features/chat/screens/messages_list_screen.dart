@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 import 'chat_detail_screen.dart';
 
 class ChatThreadModel {
@@ -28,11 +30,11 @@ class ChatThreadModel {
     required this.timeAgo,
     this.unreadCount = 0,
     required this.userInitials,
-    this.productTitle = 'iPhone 13 Pro · 256GB',
-    this.productPrice = 43500,
+    this.productTitle = '',
+    this.productPrice = 0.0,
     this.deliveryType = 'Courier',
-    this.trackingNumber = '2345678',
-    this.courierName = 'Ekart Logistics',
+    this.trackingNumber = '',
+    this.courierName = '',
   });
 }
 
@@ -45,84 +47,85 @@ class MessagesListScreen extends ConsumerStatefulWidget {
 
 class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
   int _selectedTab = 0; // 0 = Buyer, 1 = Seller
+  bool _isLoading = true;
 
-  final List<ChatThreadModel> _buyerThreads = [
-    const ChatThreadModel(
-      id: 'thread-buyer-1',
-      userName: 'Ravi Kumar',
-      userRole: 'Seller',
-      productSubject: 're: MacBook Air M2',
-      lastMessage: 'Is the MacBook still available?',
-      timeAgo: '2m',
-      unreadCount: 2,
-      userInitials: 'RK',
-      productTitle: 'MacBook Air M2 · 512GB',
-      productPrice: 75000,
-    ),
-    const ChatThreadModel(
-      id: 'thread-buyer-2',
-      userName: 'Meena Stores',
-      userRole: 'Seller',
-      productSubject: 're: Sony WH-1000XM5',
-      lastMessage: 'Your order has been shipped!',
-      timeAgo: '1h',
-      unreadCount: 0,
-      userInitials: 'MS',
-      productTitle: 'Sony WH-1000XM5 Headphones',
-      productPrice: 21000,
-    ),
-    const ChatThreadModel(
-      id: 'thread-buyer-3',
-      userName: 'Arun Textiles',
-      userRole: 'Seller',
-      productSubject: 're: Study Chair',
-      lastMessage: 'Deal confirmed. Meetup tomorrow 5PM',
-      timeAgo: '3h',
-      unreadCount: 1,
-      userInitials: 'AT',
-      productTitle: 'Ergonomic Study Chair',
-      productPrice: 4200,
-    ),
-  ];
+  List<ChatThreadModel> _buyerThreads = [];
+  List<ChatThreadModel> _sellerThreads = [];
 
-  final List<ChatThreadModel> _sellerThreads = [
-    const ChatThreadModel(
-      id: 'thread-seller-1',
-      userName: 'Priya Menon',
-      userRole: 'Buyer',
-      productSubject: 're: Sony Headphones',
-      lastMessage: 'Can you do ₹2,800?',
-      timeAgo: '5m',
-      unreadCount: 3,
-      userInitials: 'PM',
-      productTitle: 'Sony Extra Bass Headphones',
-      productPrice: 2800,
-    ),
-    const ChatThreadModel(
-      id: 'thread-seller-2',
-      userName: 'Kiran Reddy',
-      userRole: 'Buyer',
-      productSubject: 're: Gaming Laptop',
-      lastMessage: "I'll take it. What's the meetup spot?",
-      timeAgo: '30m',
-      unreadCount: 0,
-      userInitials: 'KR',
-      productTitle: 'ASUS ROG Gaming Laptop',
-      productPrice: 65000,
-    ),
-    const ChatThreadModel(
-      id: 'thread-seller-3',
-      userName: 'Lokesh',
-      userRole: 'Buyer',
-      productSubject: 're: iPhone 13 Pro',
-      lastMessage: 'You have shared tracking details.',
-      timeAgo: '2h',
-      unreadCount: 0,
-      userInitials: 'LK',
-      productTitle: 'iPhone 13 Pro · 256GB',
-      productPrice: 43500,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchRooms();
+  }
+
+  Future<void> _fetchRooms() async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final currentUserId = ref.read(authProvider).user?.id;
+      final res = await apiClient.get('/chat/rooms');
+
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final List roomsJson = res.data['data'] as List;
+        final List<ChatThreadModel> buyers = [];
+        final List<ChatThreadModel> sellers = [];
+
+        for (final item in roomsJson) {
+          final map = item as Map<String, dynamic>;
+          final id = map['id']?.toString() ?? '';
+          final buyerId = map['buyerId']?.toString();
+          final sellerId = map['sellerId']?.toString();
+          final otherName = map['otherUserName']?.toString() ?? 'User';
+          final otherRole = map['otherUserRole']?.toString() ?? 'Buyer';
+          final listingTitle = map['listingTitle']?.toString() ?? 'Listing';
+          final listingPrice = (map['listingPrice'] is num) ? (map['listingPrice'] as num).toDouble() : 0.0;
+          final lastMsg = map['lastMessagePreview']?.toString() ?? 'Tap to view conversation';
+          final unread = (map['unreadCount'] is int) ? map['unreadCount'] as int : 0;
+          final initials = otherName.isNotEmpty
+              ? otherName.trim().split(' ').map((s) => s.isNotEmpty ? s[0] : '').take(2).join().toUpperCase()
+              : 'U';
+
+          final thread = ChatThreadModel(
+            id: id,
+            userName: otherName,
+            userRole: otherRole,
+            productSubject: 're: $listingTitle',
+            lastMessage: lastMsg,
+            timeAgo: 'Recent',
+            unreadCount: unread,
+            userInitials: initials,
+            productTitle: listingTitle,
+            productPrice: listingPrice,
+            deliveryType: 'Courier',
+          );
+
+          if (currentUserId != null && currentUserId == buyerId) {
+            buyers.add(thread);
+          } else if (currentUserId != null && currentUserId == sellerId) {
+            sellers.add(thread);
+          } else {
+            if (otherRole.toLowerCase() == 'seller') {
+              buyers.add(thread);
+            } else {
+              sellers.add(thread);
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _buyerThreads = buyers;
+            _sellerThreads = sellers;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -244,10 +247,58 @@ class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
 
             // ── Messages List ──────────────────────────────────
             Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                itemCount: currentList.length,
-                separatorBuilder: (_, __) => Divider(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Color(0xFF004E54)),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _fetchRooms,
+                      color: const Color(0xFF004E54),
+                      child: currentList.isEmpty
+                          ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: [
+                                SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+                                Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.chat_bubble_outline_rounded,
+                                          size: 52,
+                                          color: AppTheme.textSecondary.withValues(alpha: 0.4)),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        _selectedTab == 0
+                                            ? 'No buyer conversations'
+                                            : 'No seller conversations',
+                                        style: const TextStyle(
+                                          fontFamily: 'Poppins',
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _selectedTab == 0
+                                            ? 'Offers you make will appear here.'
+                                            : 'Offers you receive will appear here.',
+                                        style: const TextStyle(
+                                          fontFamily: 'Poppins',
+                                          fontSize: 12,
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.separated(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              itemCount: currentList.length,
+                              separatorBuilder: (_, __) => Divider(
                   height: 1,
                   thickness: 1,
                   indent: 68,
@@ -380,6 +431,7 @@ class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
                 },
               ),
             ),
+          ),
           ],
         ),
       ),

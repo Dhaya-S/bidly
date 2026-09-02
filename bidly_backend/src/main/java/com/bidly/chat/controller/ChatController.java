@@ -33,7 +33,11 @@ public class ChatController {
     public ResponseEntity<ApiResponse<ChatRoomDto>> getOrCreateRoom(
             @AuthenticationPrincipal UUID currentUserId,
             @RequestBody CreateRoomRequest request) {
-        ChatRoomDto room = chatService.getOrCreateRoom(request.getListingId(), currentUserId);
+        ChatRoomDto room = chatService.getOrCreateRoom(
+                request.getListingId(),
+                currentUserId,
+                request.getBuyerId(),
+                request.getOfferId());
         return ResponseEntity.ok(ApiResponse.success("Room created or retrieved", room));
     }
 

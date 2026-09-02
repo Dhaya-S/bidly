@@ -82,6 +82,27 @@ public class OfferDto {
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 
+    private String buyerAvatarUrl;
+    private String buyerLocality;
+    private String rejectionReason;
+    private String rejectionNote;
+    private Instant rejectedAt;
+
+    public String getBuyerAvatarUrl() { return buyerAvatarUrl; }
+    public void setBuyerAvatarUrl(String buyerAvatarUrl) { this.buyerAvatarUrl = buyerAvatarUrl; }
+
+    public String getBuyerLocality() { return buyerLocality; }
+    public void setBuyerLocality(String buyerLocality) { this.buyerLocality = buyerLocality; }
+
+    public String getRejectionReason() { return rejectionReason; }
+    public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+
+    public String getRejectionNote() { return rejectionNote; }
+    public void setRejectionNote(String rejectionNote) { this.rejectionNote = rejectionNote; }
+
+    public Instant getRejectedAt() { return rejectedAt; }
+    public void setRejectedAt(Instant rejectedAt) { this.rejectedAt = rejectedAt; }
+
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
 }

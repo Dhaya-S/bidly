@@ -28,4 +28,6 @@ public interface OfferRepository extends JpaRepository<Offer, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM Offer o WHERE o.id = :id")
     Optional<Offer> findByIdWithPessimisticLock(@Param("id") UUID id);
+
+    Optional<Offer> findByClientOfferId(String clientOfferId);
 }

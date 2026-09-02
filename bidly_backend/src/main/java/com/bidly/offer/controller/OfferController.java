@@ -21,6 +21,20 @@ public class OfferController {
     }
 
     /**
+     * POST /api/offers - Canonical endpoint to submit an offer on a Direct Sale listing
+     */
+    @PostMapping("/offers")
+    public ResponseEntity<ApiResponse<OfferDto>> submitOffer(
+            @AuthenticationPrincipal UUID currentUserId,
+            @Valid @RequestBody CreateOfferRequest request) {
+        if (request.getListingId() == null) {
+            throw com.bidly.common.exception.BidlyException.badRequest("listingId is required in request body");
+        }
+        OfferDto dto = offerService.createOffer(request.getListingId(), currentUserId, request);
+        return ResponseEntity.ok(ApiResponse.success("Offer submitted successfully", dto));
+    }
+
+    /**
      * POST /api/listings/{listingId}/offers - Submit an offer on a Direct Sale listing
      */
     @PostMapping("/listings/{listingId}/offers")
@@ -28,6 +42,7 @@ public class OfferController {
             @PathVariable UUID listingId,
             @AuthenticationPrincipal UUID currentUserId,
             @Valid @RequestBody CreateOfferRequest request) {
+        request.setListingId(listingId);
         OfferDto dto = offerService.createOffer(listingId, currentUserId, request);
         return ResponseEntity.ok(ApiResponse.success("Offer submitted successfully", dto));
     }
@@ -70,13 +85,14 @@ public class OfferController {
     }
 
     /**
-     * POST /api/offers/{offerId}/reject - Reject / cancel an offer
+     * POST /api/offers/{offerId}/reject - Reject / cancel an offer with optional reason and note
      */
     @PostMapping("/offers/{offerId}/reject")
     public ResponseEntity<ApiResponse<OfferDto>> rejectOffer(
             @PathVariable UUID offerId,
-            @AuthenticationPrincipal UUID currentUserId) {
-        OfferDto dto = offerService.rejectOffer(offerId, currentUserId);
+            @AuthenticationPrincipal UUID currentUserId,
+            @RequestBody(required = false) RejectOfferRequest request) {
+        OfferDto dto = offerService.rejectOffer(offerId, currentUserId, request);
         return ResponseEntity.ok(ApiResponse.success("Offer rejected", dto));
     }
 

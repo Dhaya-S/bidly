@@ -3,6 +3,7 @@ package com.bidly;
 import com.bidly.common.exception.BidlyException;
 import com.bidly.category.entity.Category;
 import com.bidly.category.repository.CategoryRepository;
+import com.bidly.community.repository.CommunityPostRepository;
 import com.bidly.listing.dto.CreateListingRequest;
 import com.bidly.listing.dto.ListingSummaryDto;
 import com.bidly.listing.entity.Listing;
@@ -65,6 +66,9 @@ public class AsyncMediaProcessingTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private CommunityPostRepository communityPostRepository;
+
     @InjectMocks
     private MediaService mediaService;
 
@@ -91,7 +95,7 @@ public class AsyncMediaProcessingTest {
                 categoryRepository,
                 userRepository,
                 null,
-                null,
+                communityPostRepository,
                 mediaService,
                 mediaJobRepository
         );
@@ -236,6 +240,9 @@ public class AsyncMediaProcessingTest {
         File mockSource = File.createTempFile("mock_src", ".mp4");
         File mockOpt = File.createTempFile("mock_opt", ".mp4");
         File mockThumb = File.createTempFile("mock_thumb", ".jpg");
+        java.nio.file.Files.write(mockSource.toPath(), new byte[]{1, 2, 3});
+        java.nio.file.Files.write(mockOpt.toPath(), new byte[]{1, 2, 3});
+        java.nio.file.Files.write(mockThumb.toPath(), new byte[]{1, 2, 3});
 
         VideoProcessingResult mockResult = new VideoProcessingResult();
         mockResult.setOptimizedVideoFile(mockOpt);

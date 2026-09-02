@@ -13,6 +13,8 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, UUID> {
 
     Optional<ChatRoom> findByListingIdAndBuyerId(UUID listingId, UUID buyerId);
 
+    List<ChatRoom> findByListingId(UUID listingId);
+
     @Query("SELECT r FROM ChatRoom r WHERE r.buyerId = :userId OR r.sellerId = :userId ORDER BY r.lastMessageAt DESC NULLS LAST")
     List<ChatRoom> findAllByUserId(@Param("userId") UUID userId);
 }

@@ -46,6 +46,10 @@ import '../../features/auction/screens/track_order_screen.dart';
 import '../../features/auction/screens/delivery_confirmation_screen.dart';
 import '../../features/auction/screens/review_rating_screen.dart';
 import '../../features/subscription/screens/seller_subscription_screen.dart';
+import '../../features/chat/screens/seller_otp_verification_screen.dart';
+import '../../features/chat/screens/seller_otp_verified_screen.dart';
+import '../../features/chat/screens/product_sold_success_screen.dart';
+import '../../features/profile/screens/sale_summary_screen.dart';
 
 /// Placeholder screen for routes not yet implemented
 class PlaceholderScreen extends StatelessWidget {
@@ -203,6 +207,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/auction/tracker/:id',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return AuctionTrackerScreen(listingId: id);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.auctionWon,
         name: 'auctionWon',
         builder: (ctx, state) {
@@ -240,6 +251,58 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
           return ReviewRatingScreen(orderId: id);
+        },
+      ),
+      GoRoute(
+        path: '/orders/:id/verify-otp',
+        name: 'verifyOrderOtp',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return SellerOtpVerificationScreen(orderId: id);
+        },
+      ),
+      GoRoute(
+        path: '/orders/:id/otp-verified',
+        name: 'orderOtpVerified',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return SellerOtpVerifiedScreen(
+            orderId: id,
+            buyerName: 'Buyer',
+            productTitle: 'Product',
+            productPrice: 0.0,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/orders/:id/sold-success',
+        name: 'productSoldSuccess',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return ProductSoldSuccessScreen(
+            orderId: id,
+            productTitle: 'Product',
+            buyerName: 'Buyer',
+            productPrice: 0.0,
+            transactionId: '#TXN-$id',
+            dateFormatted: 'Today',
+          );
+        },
+      ),
+      GoRoute(
+        path: '/orders/:id/sale-summary',
+        name: 'orderSaleSummary',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return SaleSummaryScreen(orderId: id);
+        },
+      ),
+      GoRoute(
+        path: '/my-listings/sale-summary/:id',
+        name: 'myListingsSaleSummary',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return SaleSummaryScreen(orderId: id);
         },
       ),
       // Chat & Messages Flow

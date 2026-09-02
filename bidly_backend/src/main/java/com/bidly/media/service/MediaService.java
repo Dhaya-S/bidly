@@ -55,7 +55,7 @@ public class MediaService {
     private int presignedExpiryMinutes;
 
     @Value("${media.video.max-size-bytes:104857600}")
-    private long maxSizeBytes;
+    private long maxSizeBytes = 104857600L;
 
     public MediaService(
             S3Client s3Client,

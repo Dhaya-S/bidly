@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:intl/intl.dart';
 
 class ChatMessageModel {
@@ -41,6 +42,21 @@ class ChatMessageModel {
   bool get isSending => status.toUpperCase() == 'SENDING';
   bool get isFailed => status.toUpperCase() == 'FAILED';
   bool get isRead => status.toUpperCase() == 'READ' || readAt != null;
+
+  bool get isShipmentDispatched {
+    if (metadata != null && metadata!.contains('trackingNumber')) return true;
+    if (content != null && content!.toLowerCase().contains('shipment dispatched')) return true;
+    return false;
+  }
+
+  Map<String, dynamic>? get parsedMetadata {
+    if (metadata == null || metadata!.isEmpty) return null;
+    try {
+      return jsonDecode(metadata!) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
 
   ChatMessageModel copyWith({
     String? id,

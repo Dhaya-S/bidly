@@ -64,6 +64,18 @@ public class Order extends BaseEntity {
     @Column(name = "meetup_otp_verified")
     private Boolean meetupOtpVerified = false;
 
+    @Column(name = "meetup_notes", columnDefinition = "TEXT")
+    private String meetupNotes;
+
+    @Column(name = "client_action_id", length = 100)
+    private String clientActionId;
+
+    @Column(name = "otp_expires_at")
+    private Instant otpExpiresAt;
+
+    @Column(name = "otp_attempt_count")
+    private int otpAttemptCount = 0;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "delivery_address_id")
     private DeliveryAddress deliveryAddress;
@@ -169,6 +181,18 @@ public class Order extends BaseEntity {
 
     public Boolean getMeetupOtpVerified() { return meetupOtpVerified; }
     public void setMeetupOtpVerified(Boolean meetupOtpVerified) { this.meetupOtpVerified = meetupOtpVerified; }
+
+    public String getMeetupNotes() { return meetupNotes; }
+    public void setMeetupNotes(String meetupNotes) { this.meetupNotes = meetupNotes; }
+
+    public String getClientActionId() { return clientActionId; }
+    public void setClientActionId(String clientActionId) { this.clientActionId = clientActionId; }
+
+    public Instant getOtpExpiresAt() { return otpExpiresAt; }
+    public void setOtpExpiresAt(Instant otpExpiresAt) { this.otpExpiresAt = otpExpiresAt; }
+
+    public int getOtpAttemptCount() { return otpAttemptCount; }
+    public void setOtpAttemptCount(int otpAttemptCount) { this.otpAttemptCount = otpAttemptCount; }
 
     public DeliveryAddress getDeliveryAddress() { return deliveryAddress; }
     public void setDeliveryAddress(DeliveryAddress deliveryAddress) { this.deliveryAddress = deliveryAddress; }

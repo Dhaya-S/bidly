@@ -40,28 +40,34 @@ public class OfferService {
     private final ListingRepository listingRepository;
     private final UserRepository userRepository;
     private final OrderService orderService;
+    private final com.bidly.order.repository.OrderRepository orderRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final MediaService mediaService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final com.bidly.notification.service.NotificationService notificationService;
 
     public OfferService(
             OfferRepository offerRepository,
             ListingRepository listingRepository,
             UserRepository userRepository,
             OrderService orderService,
+            com.bidly.order.repository.OrderRepository orderRepository,
             ChatRoomRepository chatRoomRepository,
             ChatMessageRepository chatMessageRepository,
             MediaService mediaService,
-            SimpMessagingTemplate messagingTemplate) {
+            SimpMessagingTemplate messagingTemplate,
+            com.bidly.notification.service.NotificationService notificationService) {
         this.offerRepository = offerRepository;
         this.listingRepository = listingRepository;
         this.userRepository = userRepository;
         this.orderService = orderService;
+        this.orderRepository = orderRepository;
         this.chatRoomRepository = chatRoomRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.mediaService = mediaService;
         this.messagingTemplate = messagingTemplate;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -95,8 +101,19 @@ public class OfferService {
             throw BidlyException.badRequest("You cannot make an offer on your own listing");
         }
 
+        if (req.getClientOfferId() != null && !req.getClientOfferId().isBlank()) {
+            Optional<Offer> existing = offerRepository.findByClientOfferId(req.getClientOfferId().trim());
+            if (existing.isPresent()) {
+                log.info("[IDEMPOTENCY] Found existing offer with clientOfferId {}", req.getClientOfferId());
+                return mapToDto(existing.get(), buyerId);
+            }
+        }
+
         Offer offer = new Offer(listing, buyer, seller, req.getAmount(), req.getMessage());
         offer.setExpiresAt(Instant.now().plus(Duration.ofDays(3)));
+        if (req.getClientOfferId() != null && !req.getClientOfferId().isBlank()) {
+            offer.setClientOfferId(req.getClientOfferId().trim());
+        }
         Offer saved = offerRepository.save(offer);
 
         // Ensure chat room exists and post offer message
@@ -105,7 +122,7 @@ public class OfferService {
                     ChatRoom r = new ChatRoom();
                     r.setListingId(listingId);
                     r.setBuyerId(buyerId);
-                    r.setSellerId(seller != null ? seller.getId() : buyerId);
+                    r.setSellerId(seller.getId());
                     return chatRoomRepository.save(r);
                 });
 
@@ -125,6 +142,27 @@ public class OfferService {
 
         // Broadcast to WebSocket after commit
         broadcastOfferEvent(room.getId(), saved.getId(), "PENDING", req.getAmount().doubleValue(), null, savedMsg, buyer.getName());
+
+        // Send persistent notification & real-time alert to Seller
+        if (seller != null) {
+            String metadataJson = String.format(
+                    "{\"offerAmount\":%s,\"listingPrice\":%s,\"buyerName\":\"%s\",\"buyerId\":\"%s\",\"offerId\":\"%s\"}",
+                    saved.getAmount(), listing.getPrice(), buyer.getName(), buyer.getId(), saved.getId());
+
+            notificationService.sendNotification(
+                    seller,
+                    com.bidly.notification.entity.Notification.NotificationType.NEW_OFFER,
+                    "New Offer Received",
+                    buyer.getName() + " made an offer on " + listing.getTitle(),
+                    listing,
+                    saved,
+                    null,
+                    "View Offer",
+                    "/chat/offer/" + listingId,
+                    saved.getId(),
+                    metadataJson
+            );
+        }
 
         log.info("Offer of Rs. {} submitted for listing '{}' by buyer '{}'", req.getAmount(), listing.getTitle(), buyer.getName());
         return mapToDto(saved, buyerId);
@@ -187,7 +225,7 @@ public class OfferService {
      * Rejects or declines an offer.
      */
     @Transactional
-    public OfferDto rejectOffer(UUID offerId, UUID currentUserId) {
+    public OfferDto rejectOffer(UUID offerId, UUID currentUserId, com.bidly.offer.dto.RejectOfferRequest req) {
         Offer offer = offerRepository.findByIdWithPessimisticLock(offerId)
                 .orElseThrow(() -> BidlyException.notFound("Offer not found: " + offerId));
 
@@ -197,7 +235,16 @@ public class OfferService {
             throw BidlyException.forbidden("You are not authorized to reject this offer");
         }
 
-        offer.setStatus(isSeller ? Offer.OfferStatus.REJECTED : Offer.OfferStatus.CANCELLED);
+        if (isSeller) {
+            offer.setStatus(Offer.OfferStatus.REJECTED);
+            if (req != null) {
+                offer.setRejectionReason(req.getReason());
+                offer.setRejectionNote(req.getNote());
+            }
+            offer.setRejectedAt(Instant.now());
+        } else {
+            offer.setStatus(Offer.OfferStatus.CANCELLED);
+        }
         Offer saved = offerRepository.save(offer);
 
         ChatRoom room = chatRoomRepository.findByListingIdAndBuyerId(offer.getListing().getId(), offer.getBuyer().getId()).orElse(null);
@@ -207,7 +254,8 @@ public class OfferService {
             msg.setSenderId(currentUserId);
             msg.setType(isSeller ? ChatMessage.MessageType.OFFER_REJECTED : ChatMessage.MessageType.SYSTEM);
             msg.setStatus(ChatMessage.MessageStatus.SENT);
-            msg.setContent(isSeller ? "Offer of ₹" + offer.getAmount() + " declined." : "Offer cancelled by buyer.");
+            String reasonText = (req != null && req.getReason() != null && !req.getReason().isBlank()) ? " (" + req.getReason() + ")" : "";
+            msg.setContent(isSeller ? "Offer of ₹" + offer.getAmount().toBigInteger() + " declined" + reasonText + "." : "Offer cancelled by buyer.");
             ChatMessage savedMsg = chatMessageRepository.save(msg);
             room.setLastMessageAt(Instant.now());
             room.setUpdatedAt(Instant.now());
@@ -217,12 +265,34 @@ public class OfferService {
             broadcastOfferEvent(room.getId(), saved.getId(), saved.getStatus().name(), offer.getAmount().doubleValue(), null, savedMsg, senderName);
         }
 
+        if (isSeller) {
+            String metadataJson = req != null ? String.format("{\"reason\":\"%s\",\"note\":\"%s\"}", req.getReason(), req.getNote()) : null;
+            notificationService.sendNotification(
+                    offer.getBuyer(),
+                    com.bidly.notification.entity.Notification.NotificationType.OFFER_REJECTED,
+                    "Offer Declined",
+                    offer.getSeller().getName() + " declined your offer on " + offer.getListing().getTitle(),
+                    offer.getListing(),
+                    saved,
+                    null,
+                    "View Details",
+                    "/chat/offer/" + offer.getListing().getId(),
+                    saved.getId(),
+                    metadataJson
+            );
+        }
+
         return mapToDto(saved, currentUserId);
     }
 
+    @Transactional
+    public OfferDto rejectOffer(UUID offerId, UUID currentUserId) {
+        return rejectOffer(offerId, currentUserId, null);
+    }
+
     /**
-     * Atomically accepts the offer, marks the listing SOLD, cancels competing offers,
-     * and creates the direct-sale order with delivery/meetup details.
+     * Atomically accepts the offer, creates direct-sale order, cancels competing offers,
+     * and notifies buyer via real-time WebSocket.
      */
     @Transactional
     public OfferDto acceptOffer(UUID offerId, UUID currentUserId, AcceptOfferRequest req) {
@@ -254,11 +324,7 @@ public class OfferService {
         offer.setStatus(Offer.OfferStatus.ACCEPTED);
         Offer savedOffer = offerRepository.save(offer);
 
-        // Mark listing as SOLD
-        listing.setStatus(Listing.ListingStatus.SOLD);
-        listingRepository.save(listing);
-
-        // Create the Order
+        // Create the Order with Delivery/Meetup configuration
         Order order = orderService.createOrderForAcceptedOffer(listing, savedOffer, req);
 
         // Cancel other pending offers on this listing
@@ -278,7 +344,7 @@ public class OfferService {
             msg.setSenderId(currentUserId);
             msg.setType(ChatMessage.MessageType.OFFER_ACCEPTED);
             msg.setStatus(ChatMessage.MessageStatus.SENT);
-            msg.setContent("🎉 Offer of ₹" + (offer.getCounterAmount() != null ? offer.getCounterAmount() : offer.getAmount()) + " ACCEPTED! Order #" + order.getOrderNumber() + " created.");
+            msg.setContent("🎉 Offer of ₹" + (offer.getCounterAmount() != null ? offer.getCounterAmount().toBigInteger() : offer.getAmount().toBigInteger()) + " ACCEPTED! Order #" + order.getOrderNumber() + " confirmed.");
             ChatMessage savedMsg = chatMessageRepository.save(msg);
             room.setLastMessageAt(Instant.now());
             room.setUpdatedAt(Instant.now());
@@ -288,7 +354,22 @@ public class OfferService {
             broadcastOfferEvent(room.getId(), savedOffer.getId(), "ACCEPTED", offer.getAmount().doubleValue(), null, savedMsg, senderName);
         }
 
-        log.info("Offer '{}' accepted. Listing '{}' marked SOLD. Order '{}' created.", offerId, listing.getTitle(), order.getOrderNumber());
+        // Send persistent notification & real-time alert to Buyer
+        notificationService.sendNotification(
+                offer.getBuyer(),
+                com.bidly.notification.entity.Notification.NotificationType.OFFER_ACCEPTED,
+                "Offer Accepted!",
+                offer.getSeller().getName() + " accepted your offer on " + listing.getTitle(),
+                listing,
+                savedOffer,
+                order,
+                "View Details",
+                "/chat/offer/" + listing.getId(),
+                order.getId(),
+                String.format("{\"orderId\":\"%s\",\"orderNumber\":\"%s\"}", order.getId(), order.getOrderNumber())
+        );
+
+        log.info("Offer '{}' accepted. Order '{}' created.", offerId, order.getOrderNumber());
         OfferDto dto = mapToDto(savedOffer, currentUserId);
         dto.setOrderId(order.getId());
         return dto;
@@ -357,6 +438,8 @@ public class OfferService {
 
         dto.setBuyerId(o.getBuyer().getId());
         dto.setBuyerName(o.getBuyer().getName() != null ? o.getBuyer().getName() : "Buyer");
+        dto.setBuyerAvatarUrl(o.getBuyer().getAvatarUrl());
+        dto.setBuyerLocality(o.getBuyer().getCity() != null ? o.getBuyer().getCity() : (o.getListing().getLocality() != null ? o.getListing().getLocality() : "Chennai"));
 
         dto.setSellerId(o.getSeller().getId());
         dto.setSellerName(o.getSeller().getName() != null ? o.getSeller().getName() : "Seller");
@@ -365,8 +448,13 @@ public class OfferService {
         dto.setCounterAmount(o.getCounterAmount());
         dto.setStatus(o.getStatus().name());
         dto.setMessage(o.getMessage());
+        dto.setRejectionReason(o.getRejectionReason());
+        dto.setRejectionNote(o.getRejectionNote());
+        dto.setRejectedAt(o.getRejectedAt());
         dto.setCreatedAt(o.getCreatedAt());
         dto.setExpiresAt(o.getExpiresAt());
+
+        orderRepository.findByOfferId(o.getId()).ifPresent(ord -> dto.setOrderId(ord.getId()));
 
         if (currentUserId != null) {
             dto.setBuyer(currentUserId.equals(o.getBuyer().getId()));

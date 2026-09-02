@@ -34,6 +34,7 @@ public class ChatService {
     private final ChatMessageRepository messageRepo;
     private final ListingRepository listingRepo;
     private final UserRepository userRepo;
+    private final com.bidly.offer.repository.OfferRepository offerRepo;
     private final MediaService mediaService;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -41,33 +42,82 @@ public class ChatService {
                        ChatMessageRepository messageRepo,
                        ListingRepository listingRepo,
                        UserRepository userRepo,
+                       com.bidly.offer.repository.OfferRepository offerRepo,
                        MediaService mediaService,
                        SimpMessagingTemplate messagingTemplate) {
         this.roomRepo          = roomRepo;
         this.messageRepo       = messageRepo;
         this.listingRepo       = listingRepo;
         this.userRepo          = userRepo;
+        this.offerRepo         = offerRepo;
         this.mediaService      = mediaService;
         this.messagingTemplate = messagingTemplate;
     }
 
     @Transactional
-    public ChatRoomDto getOrCreateRoom(UUID listingId, UUID buyerId) {
-        if (buyerId == null) {
+    public ChatRoomDto getOrCreateRoom(UUID listingId, UUID currentUserId, UUID targetBuyerId, UUID offerId) {
+        if (currentUserId == null) {
             throw BidlyException.unauthorized("Authentication required to use chat");
         }
-        return roomRepo.findByListingIdAndBuyerId(listingId, buyerId)
-                .map(r -> mapRoomToDto(r, buyerId))
+        Listing listing = listingRepo.findById(listingId)
+                .orElseThrow(() -> BidlyException.notFound("Listing not found: " + listingId));
+
+        User seller = listing.getSeller();
+        if (seller == null) {
+            throw BidlyException.badRequest("Listing does not have a valid seller");
+        }
+        UUID sellerId = seller.getId();
+        UUID buyerId;
+
+        if (currentUserId.equals(sellerId)) {
+            // Current requester is the SELLER
+            if (targetBuyerId != null) {
+                buyerId = targetBuyerId;
+            } else if (offerId != null) {
+                com.bidly.offer.entity.Offer offer = offerRepo.findById(offerId)
+                        .orElseThrow(() -> BidlyException.notFound("Offer not found: " + offerId));
+                buyerId = offer.getBuyer().getId();
+            } else {
+                // Fallback to active room or latest offer for this listing
+                List<ChatRoom> rooms = roomRepo.findByListingId(listingId);
+                if (!rooms.isEmpty()) {
+                    buyerId = rooms.get(0).getBuyerId();
+                } else {
+                    List<com.bidly.offer.entity.Offer> offers = offerRepo.findByListingIdOrderByCreatedAtDesc(listingId);
+                    if (!offers.isEmpty()) {
+                        buyerId = offers.get(0).getBuyer().getId();
+                    } else {
+                        throw BidlyException.badRequest("Seller must specify buyerId or offerId to open chat");
+                    }
+                }
+            }
+        } else {
+            // Current requester is the BUYER
+            buyerId = currentUserId;
+        }
+
+        if (buyerId.equals(sellerId)) {
+            throw BidlyException.badRequest("Buyer and seller cannot be the same user");
+        }
+
+        final UUID finalBuyerId = buyerId;
+        return roomRepo.findByListingIdAndBuyerId(listingId, finalBuyerId)
+                .map(r -> mapRoomToDto(r, currentUserId))
                 .orElseGet(() -> {
-                    Listing listing = listingRepo.findById(listingId)
-                            .orElseThrow(() -> BidlyException.notFound("Listing not found"));
                     ChatRoom room = new ChatRoom();
                     room.setListingId(listingId);
-                    room.setBuyerId(buyerId);
-                    room.setSellerId(listing.getSeller() != null ? listing.getSeller().getId() : buyerId);
+                    room.setBuyerId(finalBuyerId);
+                    room.setSellerId(sellerId);
                     ChatRoom saved = roomRepo.save(room);
-                    return mapRoomToDto(saved, buyerId);
+                    log.info("[CHAT] Created new chat room {} for listing {} between buyer {} and seller {}",
+                            saved.getId(), listingId, finalBuyerId, sellerId);
+                    return mapRoomToDto(saved, currentUserId);
                 });
+    }
+
+    @Transactional
+    public ChatRoomDto getOrCreateRoom(UUID listingId, UUID buyerId) {
+        return getOrCreateRoom(listingId, buyerId, null, null);
     }
 
     /** List all chat rooms where user is buyer or seller with unread counts. */

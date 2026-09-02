@@ -11,6 +11,8 @@ public class CreateOfferRequest {
     private BigDecimal amount;
 
     private String message;
+    private java.util.UUID listingId;
+    private String clientOfferId;
 
     public CreateOfferRequest() {}
 
@@ -24,4 +26,10 @@ public class CreateOfferRequest {
 
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+
+    public java.util.UUID getListingId() { return listingId; }
+    public void setListingId(java.util.UUID listingId) { this.listingId = listingId; }
+
+    public String getClientOfferId() { return clientOfferId; }
+    public void setClientOfferId(String clientOfferId) { this.clientOfferId = clientOfferId; }
 }

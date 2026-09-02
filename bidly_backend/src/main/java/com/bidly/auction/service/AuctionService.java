@@ -40,6 +40,10 @@ public class AuctionService {
     private final WalletService walletService;
     private final MediaService mediaService;
     private final com.bidly.order.service.OrderService orderService;
+    private final com.bidly.order.repository.OrderRepository orderRepository;
+    private final com.bidly.notification.service.NotificationService notificationService;
+    private final com.bidly.chat.repository.ChatRoomRepository chatRoomRepository;
+    private final com.bidly.chat.repository.ChatMessageRepository chatMessageRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     public AuctionService(
@@ -50,6 +54,10 @@ public class AuctionService {
             WalletService walletService,
             MediaService mediaService,
             com.bidly.order.service.OrderService orderService,
+            com.bidly.order.repository.OrderRepository orderRepository,
+            com.bidly.notification.service.NotificationService notificationService,
+            com.bidly.chat.repository.ChatRoomRepository chatRoomRepository,
+            com.bidly.chat.repository.ChatMessageRepository chatMessageRepository,
             SimpMessagingTemplate messagingTemplate) {
         this.listingRepository = listingRepository;
         this.bidRepository = bidRepository;
@@ -58,6 +66,10 @@ public class AuctionService {
         this.walletService = walletService;
         this.mediaService = mediaService;
         this.orderService = orderService;
+        this.orderRepository = orderRepository;
+        this.notificationService = notificationService;
+        this.chatRoomRepository = chatRoomRepository;
+        this.chatMessageRepository = chatMessageRepository;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -677,6 +689,210 @@ public class AuctionService {
         } else {
             broadcastAuctionEvent(listingId, "AUCTION_ENDED");
         }
+    }
+
+    /**
+     * Authenticated seller manually ends the active auction.
+     * Concurrency-safe: pessimistic row lock, idempotent, declares top bidder as winner,
+     * releases outbid users' funds, converts winning reservation to escrow, creates order,
+     * marks listing SOLD, sends notifications & WebSockets, posts system chat messages.
+     */
+    @Transactional
+    public AuctionWinnerDto endAuctionManually(UUID listingId, UUID currentUserId) {
+        Listing listing = listingRepository.findByIdWithPessimisticLock(listingId)
+                .orElseThrow(() -> BidlyException.notFound("Auction listing not found: " + listingId));
+
+        if (listing.getSeller() == null || !listing.getSeller().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Only the seller can end this auction");
+        }
+
+        if (listing.getSellingMethod() != Listing.SellingMethod.AUCTION) {
+            throw BidlyException.badRequest("Listing is not an auction");
+        }
+
+        // Idempotency check: If already ended, retrieve existing winner details
+        if (listing.getStatus() != Listing.ListingStatus.ACTIVE) {
+            Optional<com.bidly.order.entity.Order> existing = orderRepository.findFirstByListingIdOrderByCreatedAtDesc(listingId);
+            if (existing.isPresent()) {
+                com.bidly.order.entity.Order ord = existing.get();
+                String imgUrl = (listing.getMedia() != null && !listing.getMedia().isEmpty())
+                        ? mediaService.generatePresignedGetUrl(listing.getMedia().get(0).getUrl(), Duration.ofHours(4))
+                        : null;
+                return new AuctionWinnerDto(
+                        ord.getId(),
+                        listing.getId(),
+                        listing.getTitle(),
+                        imgUrl,
+                        ord.getBuyer().getId(),
+                        ord.getBuyer().getName(),
+                        listing.getLocality() != null ? listing.getLocality() : "Chennai",
+                        ord.getAmount(),
+                        ord.getPaymentStatus() == com.bidly.order.entity.Order.PaymentStatus.IN_ESCROW,
+                        ord.getStatus().name()
+                );
+            }
+            throw BidlyException.badRequest("Auction is already ended with status: " + listing.getStatus());
+        }
+
+        Optional<Bid> winningBidOpt = bidRepository.findFirstByListingIdAndStatusOrderByAmountDescCreatedAtDesc(listingId, Bid.BidStatus.ACTIVE);
+        if (winningBidOpt.isPresent()) {
+            Bid winningBid = winningBidOpt.get();
+            winningBid.setStatus(Bid.BidStatus.WON);
+            bidRepository.save(winningBid);
+
+            // Release any other active bids as OUTBID
+            List<Bid> activeBids = bidRepository.findByListingIdAndStatus(listingId, Bid.BidStatus.ACTIVE);
+            for (Bid b : activeBids) {
+                if (!b.getId().equals(winningBid.getId())) {
+                    b.setStatus(Bid.BidStatus.OUTBID);
+                    bidRepository.save(b);
+                    walletService.releaseFunds(
+                            b.getBidder().getId(),
+                            b.getAmount(),
+                            listingId,
+                            "Auction ended: Outbid by winner"
+                    );
+                }
+            }
+
+            listing.setStatus(Listing.ListingStatus.SOLD);
+            listingRepository.save(listing);
+
+            // Create Order and convert reservation to Escrow
+            com.bidly.order.entity.Order savedOrder = orderService.createOrderForWinningBid(listing, winningBid);
+            log.info("Auction '{}' manually ended by seller {}. Winner: '{}', Amount: Rs.{}",
+                    listing.getTitle(), currentUserId, winningBid.getBidder().getName(), winningBid.getAmount());
+
+            // Send persistent notification to winner (Buyer)
+            notificationService.sendNotificationWithMeta(
+                    winningBid.getBidder(),
+                    com.bidly.notification.entity.Notification.NotificationType.AUCTION_WON,
+                    "You Won the Auction!",
+                    "Congratulations! You won the auction for " + listing.getTitle() + " with a bid of ₹" + winningBid.getAmount(),
+                    listing,
+                    null,
+                    savedOrder,
+                    "View Order",
+                    "/orders/" + savedOrder.getId() + "/track",
+                    savedOrder.getId(),
+                    Map.of("listingId", listing.getId().toString(), "orderId", savedOrder.getId().toString())
+            );
+
+            // Send persistent notification to seller
+            notificationService.sendNotificationWithMeta(
+                    listing.getSeller(),
+                    com.bidly.notification.entity.Notification.NotificationType.WINNER_SELECTED,
+                    "Auction Ended - Winner Declared",
+                    winningBid.getBidder().getName() + " won the auction for " + listing.getTitle() + " (₹" + winningBid.getAmount() + "). Please choose a delivery method.",
+                    listing,
+                    null,
+                    savedOrder,
+                    "Choose Delivery",
+                    "/auction/tracker/" + listing.getId(),
+                    savedOrder.getId(),
+                    Map.of("listingId", listing.getId().toString(), "orderId", savedOrder.getId().toString())
+            );
+
+            // Initialize chat room between seller and buyer if not exists
+            com.bidly.chat.entity.ChatRoom room = chatRoomRepository.findByListingIdAndBuyerId(listing.getId(), winningBid.getBidder().getId())
+                    .orElseGet(() -> {
+                        com.bidly.chat.entity.ChatRoom cr = new com.bidly.chat.entity.ChatRoom();
+                        cr.setListingId(listing.getId());
+                        cr.setBuyerId(winningBid.getBidder().getId());
+                        cr.setSellerId(listing.getSeller().getId());
+                        cr.setLastMessageAt(Instant.now());
+                        return chatRoomRepository.save(cr);
+                    });
+
+            // Post system messages into chat
+            try {
+                com.bidly.chat.entity.ChatMessage msg1 = new com.bidly.chat.entity.ChatMessage();
+                msg1.setRoomId(room.getId());
+                msg1.setSenderId(listing.getSeller().getId());
+                msg1.setContent("BIDLY Buyer Protection is active for this transaction.");
+                msg1.setType(com.bidly.chat.entity.ChatMessage.MessageType.SYSTEM);
+                chatMessageRepository.save(msg1);
+
+                com.bidly.chat.entity.ChatMessage msg2 = new com.bidly.chat.entity.ChatMessage();
+                msg2.setRoomId(room.getId());
+                msg2.setSenderId(listing.getSeller().getId());
+                msg2.setContent("BIDLY has notified the buyer they won the auction. Delivery method selection in progress.");
+                msg2.setType(com.bidly.chat.entity.ChatMessage.MessageType.SYSTEM);
+                chatMessageRepository.save(msg2);
+            } catch (Exception e) {
+                log.warn("[AUCTION_CHAT] Could not post system chat messages: {}", e.getMessage());
+            }
+
+            // Real-time broadcasts
+            broadcastAuctionEvent(listingId, "AUCTION_ENDED");
+            messagingTemplate.convertAndSend("/topic/users/" + winningBid.getBidder().getId() + "/notifications",
+                    Map.of("eventType", "AUCTION_WON", "listingId", listingId, "orderId", savedOrder.getId()));
+
+            String imgUrl = (listing.getMedia() != null && !listing.getMedia().isEmpty())
+                    ? mediaService.generatePresignedGetUrl(listing.getMedia().get(0).getUrl(), Duration.ofHours(4))
+                    : null;
+
+            return new AuctionWinnerDto(
+                    savedOrder.getId(),
+                    listing.getId(),
+                    listing.getTitle(),
+                    imgUrl,
+                    winningBid.getBidder().getId(),
+                    winningBid.getBidder().getName(),
+                    listing.getLocality() != null ? listing.getLocality() : "Chennai",
+                    winningBid.getAmount(),
+                    true,
+                    savedOrder.getStatus().name()
+            );
+        } else {
+            // No bids placed
+            listing.setStatus(Listing.ListingStatus.EXPIRED);
+            listingRepository.save(listing);
+            broadcastAuctionEvent(listingId, "AUCTION_ENDED");
+
+            return new AuctionWinnerDto(
+                    null,
+                    listing.getId(),
+                    listing.getTitle(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    BigDecimal.ZERO,
+                    false,
+                    "EXPIRED"
+            );
+        }
+    }
+
+    /**
+     * Retrieves auction winner details if finalized.
+     */
+    @Transactional(readOnly = true)
+    public AuctionWinnerDto getAuctionWinner(UUID listingId) {
+        Listing listing = listingRepository.findById(listingId)
+                .orElseThrow(() -> BidlyException.notFound("Listing not found: " + listingId));
+
+        Optional<com.bidly.order.entity.Order> ordOpt = orderRepository.findFirstByListingIdOrderByCreatedAtDesc(listingId);
+        if (ordOpt.isEmpty()) {
+            throw BidlyException.notFound("Winner details not found for this auction");
+        }
+        com.bidly.order.entity.Order ord = ordOpt.get();
+        String imgUrl = (listing.getMedia() != null && !listing.getMedia().isEmpty())
+                ? mediaService.generatePresignedGetUrl(listing.getMedia().get(0).getUrl(), Duration.ofHours(4))
+                : null;
+        return new AuctionWinnerDto(
+                ord.getId(),
+                listing.getId(),
+                listing.getTitle(),
+                imgUrl,
+                ord.getBuyer().getId(),
+                ord.getBuyer().getName(),
+                listing.getLocality() != null ? listing.getLocality() : "Chennai",
+                ord.getAmount(),
+                ord.getPaymentStatus() == com.bidly.order.entity.Order.PaymentStatus.IN_ESCROW,
+                ord.getStatus().name()
+        );
     }
 
     private String getInitials(String name) {

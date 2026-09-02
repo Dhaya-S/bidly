@@ -397,7 +397,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                 height: 42,
                 child: ElevatedButton(
                   onPressed: () {
-                    context.push(AppRoutes.home);
+                    context.push('/auction/tracker/${item.id}');
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF004E54),
@@ -411,13 +411,13 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                   ),
                 ),
               )
-            else if (item.status.toUpperCase() == 'COMPLETED')
+            else if (item.status.toUpperCase() == 'COMPLETED' || item.status.toUpperCase() == 'SOLD')
               SizedBox(
                 width: double.infinity,
                 height: 42,
                 child: OutlinedButton(
                   onPressed: () {
-                    context.push(AppRoutes.orders);
+                    context.push('/my-listings/sale-summary/${item.id}');
                   },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: const Color(0xFFE8F6F5),
@@ -453,6 +453,55 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+          ],
+
+          // Action Buttons for Direct Buy
+          if (!isAuction) ...[
+            const SizedBox(height: 12),
+            if (item.status.toUpperCase() == 'COMPLETED' || item.status.toUpperCase() == 'SOLD')
+              SizedBox(
+                width: double.infinity,
+                height: 42,
+                child: OutlinedButton(
+                  onPressed: () {
+                    context.push('/my-listings/sale-summary/${item.id}');
+                  },
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE8F6F5),
+                    side: const BorderSide(color: Color(0xFFB8E0DC)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text(
+                    'View Sale Details',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF004E54),
+                    ),
+                  ),
+                ),
+              )
+            else if (item.status.toUpperCase() == 'ACTIVE')
+              SizedBox(
+                width: double.infinity,
+                height: 42,
+                child: ElevatedButton(
+                  onPressed: () {
+                    context.push(AppRoutes.chatList);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text(
+                    'View Offers & Chats',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),

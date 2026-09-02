@@ -26,4 +26,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @EntityGraph(attributePaths = {"listing", "buyer", "seller"})
     List<Order> findBySellerIdOrderByCreatedAtDesc(UUID sellerId);
+
+    Optional<Order> findByClientActionId(String clientActionId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT o FROM Order o WHERE o.id = :id")
+    Optional<Order> findByIdWithPessimisticLock(@org.springframework.data.repository.query.Param("id") UUID id);
 }

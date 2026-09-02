@@ -103,6 +103,33 @@ class OrderNotifier extends StateNotifier<OrderState> {
     }
   }
 
+  Future<bool> createCourierShipment(
+    String orderId, {
+    required String trackingNumber,
+    required String courierPartner,
+    required DateTime estimatedDeliveryDate,
+  }) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final res = await _apiClient.post('/orders/$orderId/courier-shipment', data: {
+        'trackingNumber': trackingNumber,
+        'courierPartner': courierPartner,
+        'estimatedDeliveryDate': estimatedDeliveryDate.toUtc().toIso8601String(),
+      });
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final updatedOrder = OrderModel.fromJson(res.data['data']);
+        state = state.copyWith(isLoading: false, order: updatedOrder);
+        return true;
+      } else {
+        state = state.copyWith(isLoading: false, errorMessage: res.data?['message'] ?? 'Failed to dispatch shipment');
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: 'Error creating shipment: $e');
+      return false;
+    }
+  }
+
   Future<bool> submitReview({
     required String orderId,
     required int rating,

@@ -590,9 +590,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
   }
 
   Widget _buildShipmentCard(ChatMessageItem m) {
-    final tracking = m.shipmentData?['trackingNo'] ?? '2345678';
-    final courier = m.shipmentData?['courier'] ?? 'Ekart Logistics';
-    final estDelivery = m.shipmentData?['estDelivery'] ?? 'Thu, 4 May';
+    final tracking = m.shipmentData?['trackingNo']?.toString() ?? 'N/A';
+    final courier = m.shipmentData?['courier']?.toString() ?? 'Courier';
+    final estDelivery = m.shipmentData?['estDelivery']?.toString() ?? 'Estimated delivery TBD';
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),

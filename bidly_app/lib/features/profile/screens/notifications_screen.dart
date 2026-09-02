@@ -5,8 +5,68 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../providers/notifications_provider.dart';
 
+import '../../chat/widgets/new_offer_bottom_sheet.dart';
+import '../../chat/widgets/buyer_show_otp_modal.dart';
+
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
+
+  void _handleNotificationTap(BuildContext context, WidgetRef ref, NotificationItemModel notif) {
+    ref.read(notificationsProvider.notifier).markAsRead(notif.id);
+
+    if (notif.type == 'NEW_OFFER' || notif.type == 'OFFER') {
+      final listingId = notif.listingId ?? notif.targetId;
+      if (listingId != null && listingId.isNotEmpty) {
+        final offerAmount = (notif.metadata?['offerAmount'] != null)
+            ? (double.tryParse(notif.metadata!['offerAmount'].toString()) ?? 0.0)
+            : 0.0;
+        final listingPrice = (notif.metadata?['listingPrice'] != null)
+            ? (double.tryParse(notif.metadata!['listingPrice'].toString()) ?? 0.0)
+            : 0.0;
+        final buyerName = notif.metadata?['buyerName']?.toString() ?? 'Buyer';
+        final offerId = notif.offerId ?? notif.targetId ?? notif.id;
+
+        NewOfferBottomSheet.show(
+          context,
+          offerId: offerId,
+          listingId: listingId,
+          buyerName: buyerName,
+          offerAmount: offerAmount,
+          productTitle: notif.body,
+          listingPrice: listingPrice,
+        );
+        return;
+      }
+      context.push(AppRoutes.chatList);
+    } else if (notif.type == 'MEETUP_SCHEDULED' || notif.type == 'OTP_READY') {
+      final orderId = notif.orderId ?? notif.targetId;
+      if (orderId != null && orderId.isNotEmpty) {
+        BuyerShowOtpModal.show(context, orderId: orderId);
+        return;
+      }
+      context.push(AppRoutes.orders);
+    } else if (notif.type == 'TRANSACTION_COMPLETED' || notif.type == 'ITEM_SOLD') {
+      final orderId = notif.orderId ?? notif.targetId;
+      if (orderId != null && orderId.isNotEmpty) {
+        context.push('/my-listings/sale-summary/$orderId');
+        return;
+      }
+      context.push(AppRoutes.myListings);
+    } else if (notif.type == 'OFFER_ACCEPTED') {
+      final listingId = notif.listingId ?? notif.targetId;
+      if (listingId != null && listingId.isNotEmpty) {
+        context.push('/chat/offer/$listingId');
+        return;
+      }
+      context.push(AppRoutes.chatList);
+    } else if (notif.type == 'BID') {
+      context.push(AppRoutes.home);
+    } else if (notif.type == 'SHIPPED' || notif.type == 'DELIVERED') {
+      context.push(AppRoutes.orders);
+    } else {
+      context.push(AppRoutes.home);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -67,7 +127,7 @@ class NotificationsScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Subtitle: "5 unread"
+            // Subtitle: "X unread"
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
               child: Text(
@@ -91,16 +151,7 @@ class NotificationsScreen extends ConsumerWidget {
                   final notif = notifState.notifications[idx];
 
                   return InkWell(
-                    onTap: () {
-                      ref.read(notificationsProvider.notifier).markAsRead(notif.id);
-                      if (notif.type == 'OFFER') {
-                        context.push(AppRoutes.chatList);
-                      } else if (notif.type == 'BID') {
-                        context.push(AppRoutes.home);
-                      } else if (notif.type == 'SHIPPED') {
-                        context.push(AppRoutes.orders);
-                      }
-                    },
+                    onTap: () => _handleNotificationTap(context, ref, notif),
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
                       padding: const EdgeInsets.all(16),
@@ -132,13 +183,13 @@ class NotificationsScreen extends ConsumerWidget {
                                 ),
                                 child: Center(
                                   child: Icon(
-                                    notif.type == 'OFFER'
+                                    notif.type == 'OFFER' || notif.type == 'NEW_OFFER'
                                         ? Icons.local_offer_outlined
                                         : (notif.type == 'BID'
                                             ? Icons.gavel_rounded
                                             : (notif.type == 'SHIPPED'
                                                 ? Icons.local_shipping_outlined
-                                                : (notif.type == 'MEETUP'
+                                                : (notif.type == 'MEETUP_SCHEDULED'
                                                     ? Icons.handshake_outlined
                                                     : Icons.check_circle_outline_rounded))),
                                     color: const Color(0xFF004E54),
@@ -205,14 +256,7 @@ class NotificationsScreen extends ConsumerWidget {
                               width: double.infinity,
                               height: 42,
                               child: ElevatedButton(
-                                onPressed: () {
-                                  ref.read(notificationsProvider.notifier).markAsRead(notif.id);
-                                  if (notif.type == 'OFFER') {
-                                    context.push(AppRoutes.chatList);
-                                  } else {
-                                    context.push(AppRoutes.home);
-                                  }
-                                },
+                                onPressed: () => _handleNotificationTap(context, ref, notif),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF004E54),
                                   foregroundColor: Colors.white,

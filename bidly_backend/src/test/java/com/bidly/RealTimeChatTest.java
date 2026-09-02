@@ -68,6 +68,12 @@ public class RealTimeChatTest {
     @Mock
     private OrderService orderService;
 
+    @Mock
+    private com.bidly.notification.service.NotificationService notificationService;
+
+    @Mock
+    private com.bidly.order.repository.OrderRepository orderRepository;
+
     @InjectMocks
     private ChatService chatService;
 
@@ -288,7 +294,6 @@ public class RealTimeChatTest {
         when(offerRepo.findByIdWithPessimisticLock(offer.getId())).thenReturn(Optional.of(offer));
         when(listingRepo.findByIdWithPessimisticLock(listingId)).thenReturn(Optional.of(mockListing));
         when(offerRepo.save(any(Offer.class))).thenReturn(offer);
-        when(listingRepo.save(any(Listing.class))).thenReturn(mockListing);
         when(orderService.createOrderForAcceptedOffer(eq(mockListing), eq(offer), any())).thenReturn(mockOrder);
         when(offerRepo.findByListingIdAndStatus(listingId, Offer.OfferStatus.PENDING)).thenReturn(List.of(offer));
         when(roomRepo.findByListingIdAndBuyerId(listingId, buyerId)).thenReturn(Optional.of(mockRoom));
@@ -311,7 +316,6 @@ public class RealTimeChatTest {
         assertNotNull(result);
         assertEquals(Offer.OfferStatus.ACCEPTED.name(), result.getStatus());
         assertEquals(mockOrder.getId(), result.getOrderId());
-        assertEquals(Listing.ListingStatus.SOLD, mockListing.getStatus());
         verify(orderService).createOrderForAcceptedOffer(mockListing, offer, req);
     }
 

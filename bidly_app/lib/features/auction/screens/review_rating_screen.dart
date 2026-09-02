@@ -35,6 +35,7 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
   }
 
   void _submitReview() async {
+    final sellerName = ref.read(orderProvider).order?.sellerName ?? 'Seller';
     await ref.read(orderProvider.notifier).submitReview(
           orderId: widget.orderId,
           rating: _selectedRating,
@@ -42,14 +43,305 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
         );
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Thank you for rating your seller!'),
-          backgroundColor: Color(0xFF10B981),
-        ),
-      );
-      context.go('/');
+      _showReviewSubmittedDialog(sellerName, _selectedRating);
     }
+  }
+
+  void _showReviewSubmittedDialog(String sellerName, int rating) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 68,
+              height: 68,
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Icon(Icons.check_circle_rounded, color: Color(0xFF2E7D32), size: 44),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Review Submitted!',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Thank you for your feedback. Your review helps the BIDLY community.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FBFA),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    sellerName,
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  Row(
+                    children: List.generate(5, (i) => Icon(
+                      i < rating ? Icons.star_rounded : Icons.star_border_rounded,
+                      color: const Color(0xFFF59E0B),
+                      size: 20,
+                    )),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  context.go('/');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF004E54),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Back to Home', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showReportProblemSheet() {
+    String selectedReason = "Seller didn't show up";
+    final detailsController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final reasons = [
+            "Seller didn't show up",
+            "Item not as described",
+            "Suspected fraud or scam",
+            "Fake or counterfeit item",
+            "Aggressive / rude behaviour",
+            "Other issue",
+          ];
+
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 16,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Report a Problem',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                        ),
+                        Text(
+                          'What went wrong with this transaction?',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: AppTheme.textSecondary),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: AppTheme.textSecondary),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ...reasons.map((r) {
+                  final isSelected = selectedReason == r;
+                  return InkWell(
+                    onTap: () => setModalState(() => selectedReason = r),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 7.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFF004E54) : AppTheme.textSecondary,
+                                width: 2,
+                              ),
+                            ),
+                            child: isSelected
+                                ? Center(
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF004E54)),
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            r,
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 13,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: detailsController,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    hintText: 'Add more details (optional)...',
+                    hintStyle: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppTheme.border.withValues(alpha: 0.8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(sheetCtx).pop();
+                      _showReportSubmittedConfirmation();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF004E54),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Submit Report', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showReportSubmittedConfirmation() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(
+                color: Color(0xFFFEE2E2),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Icon(Icons.flag_rounded, color: Color(0xFFDC2626), size: 36),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Report Submitted',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Thank you for letting us know. Our team will review the report within 24 hours and take appropriate action.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF004E54),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Done', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -278,11 +570,7 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
                     ),
                     const SizedBox(height: 8),
                     GestureDetector(
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Report submitted to BIDLY Trust & Safety team.')),
-                        );
-                      },
+                      onTap: _showReportProblemSheet,
                       child: const Padding(
                         padding: EdgeInsets.symmetric(vertical: 4),
                         child: Row(

@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../models/auction_model.dart';
 import '../providers/auction_provider.dart';
+import '../widgets/auction_winner_dialog.dart';
 
 class AuctionTrackerScreen extends ConsumerStatefulWidget {
   final String listingId;
@@ -292,6 +294,58 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     );
   }
 
+  void _confirmEndAuction(BuildContext context, AuctionDetailsModel details) {
+    final highestBidder = details.highestBidderName.isNotEmpty ? details.highestBidderName : 'highest bidder';
+    final highestAmount = details.currentHighestBid > 0 ? currencyFormatter.format(details.currentHighestBid) : '₹0';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 26),
+            SizedBox(width: 10),
+            Text('End Auction Early?', style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: Text(
+          details.totalBids > 0
+              ? 'Are you sure you want to end this auction now? The current highest bidder ($highestBidder - $highestAmount) will be declared the winner immediately.'
+              : 'Are you sure you want to end this auction now? No bids have been placed yet.',
+          style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF475569)),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final winner = await ref.read(auctionProvider.notifier).endAuction(widget.listingId);
+              if (winner != null && context.mounted) {
+                AuctionWinnerDialog.show(context, winner: winner, listingId: widget.listingId);
+              } else if (context.mounted) {
+                final err = ref.read(auctionProvider).errorMessage ?? 'Failed to end auction';
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(err), backgroundColor: const Color(0xFFEF4444)),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('End Auction', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(auctionProvider);
@@ -320,6 +374,10 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     final totalBids = live?.totalBids ?? details.totalBids;
     final watchingCount = live?.watchingCount ?? details.watchingCount;
     final timeLeft = live?.timeLeftFormatted ?? details.timeLeftFormatted;
+
+    final currentUserId = ref.watch(authProvider).user?.id;
+    final isSeller = currentUserId != null && (details.sellerId == currentUserId);
+    final isAuctionEnded = details.isAuctionEnded || details.status == 'SOLD' || details.status == 'COMPLETED' || (live?.isAuctionEnded ?? false);
 
     final totalBalance = wallet?.balance ?? 0.0;
     final reservedBalance = isWinning ? userBid : (wallet?.reservedBalance ?? 0.0);
@@ -470,55 +528,99 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // 3. User's Current Position / Bid Card
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Your bid', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B))),
-                          const SizedBox(height: 2),
-                          Text(
-                            currencyFormatter.format(userBid),
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w900, color: AppTheme.textPrimary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isWinning
-                                ? '✓ Currently winning'
-                                : 'Behind by ${currencyFormatter.format(currentHighest - userBid)}',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: isWinning ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                // 3. User's Current Position / Bid Card OR Seller Status Card
+                if (!isSeller) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Your bid', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B))),
+                            const SizedBox(height: 2),
+                            Text(
+                              currencyFormatter.format(userBid),
+                              style: const TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w900, color: AppTheme.textPrimary),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isWinning
+                                  ? '✓ Currently winning'
+                                  : 'Behind by ${currencyFormatter.format(currentHighest - userBid)}',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: isWinning ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isOutbid)
+                          ElevatedButton.icon(
+                            onPressed: () => _showIncreaseBidModal(context, details, currentHighest, userBid),
+                            icon: const Icon(Icons.arrow_upward_rounded, size: 16),
+                            label: const Text('Increase Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF4444),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             ),
                           ),
-                        ],
-                      ),
-                      if (isOutbid)
-                        ElevatedButton.icon(
-                          onPressed: () => _showIncreaseBidModal(context, details, currentHighest, userBid),
-                          icon: const Icon(Icons.arrow_upward_rounded, size: 16),
-                          label: const Text('Increase Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFEF4444),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.2)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Top Bidder', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B))),
+                            const SizedBox(height: 2),
+                            Text(
+                              details.highestBidderName.isNotEmpty ? details.highestBidderName : 'No bids yet',
+                              style: const TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              details.totalBids > 0 ? '${details.totalBids} bids placed' : 'Waiting for initial bid',
+                              style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF0D9488)),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDFA),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFF99F6E4)),
+                          ),
+                          child: Text(
+                            currencyFormatter.format(currentHighest),
+                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w900, color: Color(0xFF004E54)),
                           ),
                         ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 16),
 
                 // 4. Live Bid Feed Header
@@ -552,57 +654,59 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                 else
                   ...bidFeed.map((b) => _buildBidFeedItem(b)),
 
-                const SizedBox(height: 16),
+                if (!isSeller) ...[
+                  const SizedBox(height: 16),
 
-                // 5. Withdraw from Auction Card
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.warning_amber_rounded, color: Color(0xFF64748B), size: 18),
-                          SizedBox(width: 6),
-                          Text(
-                            'Withdraw from Auction',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Withdrawing releases your reserved funds back to your wallet immediately.',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 44,
-                        child: OutlinedButton(
-                          onPressed: () => _showWithdrawDialog(context),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFFEF4444),
-                            side: const BorderSide(color: Color(0xFFFCA5A5)),
-                            backgroundColor: const Color(0xFFFEF2F2),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: const Text('Withdraw My Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                  // 5. Withdraw from Auction Card
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Color(0xFF64748B), size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              'Withdraw from Auction',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Withdrawing releases your reserved funds back to your wallet immediately.',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 44,
+                          child: OutlinedButton(
+                            onPressed: () => _showWithdrawDialog(context),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFEF4444),
+                              side: const BorderSide(color: Color(0xFFFCA5A5)),
+                              backgroundColor: const Color(0xFFFEF2F2),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Withdraw My Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
 
-          // Sticky Bottom Actions: [ 🔼 Increase Bid ] [ 👁️ View Product ]
+          // Sticky Bottom Actions
           Positioned(
             bottom: 0,
             left: 0,
@@ -617,41 +721,87 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
               ),
               child: SafeArea(
                 top: false,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _showIncreaseBidModal(context, details, currentHighest, userBid),
-                          icon: const Icon(Icons.arrow_upward_rounded, size: 18, color: Color(0xFF004E54)),
-                          label: const Text('Increase Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF004E54))),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF004E54), width: 1.5),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: isSeller
+                    ? (isAuctionEnded
+                        ? SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final winner = await ref.read(auctionProvider.notifier).fetchAuctionWinner(widget.listingId);
+                                if (winner != null && context.mounted) {
+                                  AuctionWinnerDialog.show(context, winner: winner, listingId: widget.listingId);
+                                }
+                              },
+                              icon: const Icon(Icons.emoji_events_outlined, size: 20),
+                              label: const Text(
+                                'View Winner & Delivery',
+                                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF004E54),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          )
+                        : SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: () => _confirmEndAuction(context, details),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFDC2626),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text(
+                                'End Auction',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          ))
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showIncreaseBidModal(context, details, currentHighest, userBid),
+                                icon: const Icon(Icons.arrow_upward_rounded, size: 18, color: Color(0xFF004E54)),
+                                label: const Text('Increase Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF004E54))),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Color(0xFF004E54), width: 1.5),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: () => context.push('/listing/${widget.listingId}'),
-                          icon: const Icon(Icons.remove_red_eye_outlined, size: 18),
-                          label: const Text('View Product', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF004E54),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton.icon(
+                                onPressed: () => context.push('/listing/${widget.listingId}'),
+                                icon: const Icon(Icons.remove_red_eye_outlined, size: 18),
+                                label: const Text('View Product', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF004E54),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),

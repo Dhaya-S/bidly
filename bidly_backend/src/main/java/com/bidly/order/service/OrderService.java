@@ -26,24 +26,40 @@ import java.util.stream.Collectors;
 @Service
 public class OrderService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OrderService.class);
+
     private final OrderRepository orderRepository;
     private final OrderTrackingEventRepository trackingEventRepository;
     private final WalletService walletService;
     private final MediaService mediaService;
-
     private final com.bidly.address.repository.DeliveryAddressRepository addressRepository;
+    private final com.bidly.listing.repository.ListingRepository listingRepository;
+    private final com.bidly.notification.service.NotificationService notificationService;
+    private final com.bidly.chat.repository.ChatRoomRepository chatRoomRepository;
+    private final com.bidly.chat.repository.ChatMessageRepository chatMessageRepository;
+    private final org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     public OrderService(
             OrderRepository orderRepository,
             OrderTrackingEventRepository trackingEventRepository,
             WalletService walletService,
             MediaService mediaService,
-            com.bidly.address.repository.DeliveryAddressRepository addressRepository) {
+            com.bidly.address.repository.DeliveryAddressRepository addressRepository,
+            com.bidly.listing.repository.ListingRepository listingRepository,
+            com.bidly.notification.service.NotificationService notificationService,
+            com.bidly.chat.repository.ChatRoomRepository chatRoomRepository,
+            com.bidly.chat.repository.ChatMessageRepository chatMessageRepository,
+            org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate) {
         this.orderRepository = orderRepository;
         this.trackingEventRepository = trackingEventRepository;
         this.walletService = walletService;
         this.mediaService = mediaService;
         this.addressRepository = addressRepository;
+        this.listingRepository = listingRepository;
+        this.notificationService = notificationService;
+        this.chatRoomRepository = chatRoomRepository;
+        this.chatMessageRepository = chatMessageRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     /**
@@ -118,13 +134,161 @@ public class OrderService {
     }
 
     /**
-     * Verifies In-Person Meetup OTP entered by the buyer.
-     * Completes handover, updates order to DELIVERED, and releases payment to seller.
+     * Schedules or reschedules an in-person meetup for an order.
+     */
+    @Transactional
+    public OrderSummaryDto scheduleMeetup(UUID orderId, UUID currentUserId, com.bidly.order.dto.ScheduleMeetupRequest req) {
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId)
+                .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+
+        if (!order.getSeller().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Only the seller can schedule meetup for this order");
+        }
+
+        if (order.getStatus() == Order.OrderStatus.DELIVERED || order.getStatus() == Order.OrderStatus.CANCELLED) {
+            throw BidlyException.badRequest("Cannot reschedule meetup for an order that is " + order.getStatus());
+        }
+
+        Instant meetupInstant = req.getMeetupTime();
+        if (meetupInstant == null && req.getDateString() != null) {
+            try {
+                meetupInstant = Instant.now().plus(Duration.ofDays(1));
+            } catch (Exception ignored) {}
+        }
+        if (meetupInstant == null) {
+            meetupInstant = Instant.now().plus(Duration.ofDays(1));
+        }
+
+        order.setDeliveryType(Order.DeliveryType.IN_PERSON_MEETUP);
+        order.setMeetupLocation(req.getLocation().trim());
+        order.setMeetupTime(meetupInstant);
+        if (req.getNotes() != null) {
+            order.setMeetupNotes(req.getNotes().trim());
+        }
+        if (req.getClientActionId() != null) {
+            order.setClientActionId(req.getClientActionId().trim());
+        }
+
+        if (order.getMeetupOtp() == null || order.getMeetupOtp().isBlank()) {
+            String secureOtp = String.format("%06d", new Random().nextInt(900000) + 100000);
+            order.setMeetupOtp(secureOtp);
+            order.setMeetupOtpVerified(false);
+            order.setOtpExpiresAt(Instant.now().plus(Duration.ofHours(48)));
+            order.setOtpAttemptCount(0);
+        }
+
+        order.setStatus(Order.OrderStatus.ORDER_CONFIRMED);
+        Order saved = orderRepository.save(order);
+
+        // Record tracking event
+        trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.ORDER_CONFIRMED, "Meetup Scheduled", "In-person meetup confirmed at " + saved.getMeetupLocation(), Instant.now()));
+
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yy").withZone(ZoneId.of("Asia/Kolkata"));
+        DateTimeFormatter ttf = DateTimeFormatter.ofPattern("hh:mma").withZone(ZoneId.of("Asia/Kolkata"));
+        String dateFormatted = dtf.format(meetupInstant);
+        String timeFormatted = ttf.format(meetupInstant);
+
+        // Post structured message to Chat Room
+        chatRoomRepository.findByListingIdAndBuyerId(saved.getListing().getId(), saved.getBuyer().getId()).ifPresent(room -> {
+            com.bidly.chat.entity.ChatMessage msg = new com.bidly.chat.entity.ChatMessage();
+            msg.setRoomId(room.getId());
+            msg.setSenderId(currentUserId);
+            msg.setType(com.bidly.chat.entity.ChatMessage.MessageType.MEETUP_REQUEST);
+            msg.setStatus(com.bidly.chat.entity.ChatMessage.MessageStatus.SENT);
+            msg.setContent("Meeting Scheduled\nDate: " + dateFormatted + "\nTime: " + timeFormatted + "\nLocation: " + saved.getMeetupLocation());
+            com.bidly.chat.entity.ChatMessage savedMsg = chatMessageRepository.save(msg);
+            room.setLastMessageAt(Instant.now());
+            room.setUpdatedAt(Instant.now());
+            chatRoomRepository.save(room);
+
+            // Broadcast to room
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("eventType", "MEETUP_SCHEDULED");
+            eventData.put("orderId", saved.getId());
+            eventData.put("date", dateFormatted);
+            eventData.put("time", timeFormatted);
+            eventData.put("location", saved.getMeetupLocation());
+            eventData.put("messageId", savedMsg.getId());
+            messagingTemplate.convertAndSend("/topic/chats/" + room.getId(), (Object) eventData);
+        });
+
+        // Send persistent notification & real-time alert to Buyer
+        String metadataJson = String.format(
+                "{\"orderId\":\"%s\",\"date\":\"%s\",\"time\":\"%s\",\"location\":\"%s\"}",
+                saved.getId(), dateFormatted, timeFormatted, saved.getMeetupLocation());
+
+        notificationService.sendNotification(
+                saved.getBuyer(),
+                com.bidly.notification.entity.Notification.NotificationType.MEETUP_SCHEDULED,
+                "Meeting Scheduled",
+                "Your meetup for " + saved.getListing().getTitle() + " is confirmed for " + timeFormatted + " at " + saved.getMeetupLocation(),
+                saved.getListing(),
+                saved.getOffer(),
+                saved,
+                "Show OTP",
+                "/orders/" + saved.getId() + "/track",
+                saved.getId(),
+                metadataJson
+        );
+
+        log.info("[MEETUP] Scheduled meetup for order {} at {} on {}", saved.getId(), saved.getMeetupLocation(), dateFormatted);
+        return mapToSummaryDto(saved, currentUserId);
+    }
+
+    /**
+     * Buyer retrieves their confidential 6-digit OTP for in-person handover.
+     */
+    @Transactional(readOnly = true)
+    public com.bidly.order.dto.BuyerOtpDto getBuyerOtp(UUID orderId, UUID currentUserId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+
+        if (!order.getBuyer().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Only the buyer can retrieve the handover OTP");
+        }
+
+        if (order.getDeliveryType() != Order.DeliveryType.IN_PERSON_MEETUP) {
+            throw BidlyException.badRequest("This order is not configured for in-person meetup");
+        }
+
+        if (order.getMeetupOtp() == null || order.getMeetupOtp().isBlank()) {
+            throw BidlyException.badRequest("No OTP has been generated for this meetup");
+        }
+
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("MMM dd, yyyy").withZone(ZoneId.of("Asia/Kolkata"));
+        DateTimeFormatter ttf = DateTimeFormatter.ofPattern("hh:mm a").withZone(ZoneId.of("Asia/Kolkata"));
+        Instant mTime = order.getMeetupTime() != null ? order.getMeetupTime() : Instant.now();
+
+        com.bidly.order.dto.BuyerOtpDto dto = new com.bidly.order.dto.BuyerOtpDto();
+        dto.setOrderId(order.getId());
+        dto.setOrderNumber(order.getOrderNumber());
+        dto.setOtp(order.getMeetupOtp());
+        dto.setOtpExpiresAt(order.getOtpExpiresAt() != null ? order.getOtpExpiresAt() : Instant.now().plus(Duration.ofHours(24)));
+        dto.setBuyerName(order.getBuyer().getName());
+        dto.setSellerName(order.getSeller().getName());
+        dto.setProductTitle(order.getListing().getTitle());
+        String primaryImg = (order.getListing().getMedia() != null && !order.getListing().getMedia().isEmpty())
+                ? order.getListing().getMedia().get(0).getUrl() : null;
+        dto.setProductImageUrl(mediaService.generatePresignedGetUrl(primaryImg, Duration.ofHours(4)));
+        dto.setMeetupLocation(order.getMeetupLocation());
+        dto.setMeetupTime(order.getMeetupTime());
+        dto.setMeetupDateFormatted(dtf.format(mTime));
+        dto.setMeetupTimeFormatted(ttf.format(mTime));
+
+        return dto;
+    }
+
+    /**
+     * Seller enters and verifies the OTP shared by the buyer during meetup.
      */
     @Transactional
     public OrderSummaryDto verifyMeetupOtp(UUID orderId, String inputOtp, UUID currentUserId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId)
                 .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+
+        if (!order.getSeller().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Only the seller can verify the buyer's OTP");
+        }
 
         if (order.getDeliveryType() != Order.DeliveryType.IN_PERSON_MEETUP) {
             throw BidlyException.badRequest("This order is not set for in-person meetup");
@@ -134,27 +298,177 @@ public class OrderService {
             throw BidlyException.badRequest("OTP code is required");
         }
 
+        if (order.getOtpAttemptCount() >= 5) {
+            throw BidlyException.badRequest("Too many failed attempts. Verification is locked.");
+        }
+
+        if (order.getOtpExpiresAt() != null && order.getOtpExpiresAt().isBefore(Instant.now())) {
+            throw BidlyException.badRequest("OTP has expired. Please reschedule meetup.");
+        }
+
         if (order.getMeetupOtp() == null || !order.getMeetupOtp().trim().equals(inputOtp.trim())) {
-            throw BidlyException.badRequest("Invalid OTP code. Please check the code shown by the seller.");
+            order.setOtpAttemptCount(order.getOtpAttemptCount() + 1);
+            orderRepository.save(order);
+            throw BidlyException.badRequest("Invalid OTP code. Please check the digits shown by the buyer.");
         }
 
         order.setMeetupOtpVerified(true);
+        Order saved = orderRepository.save(order);
+
+        // Notify Buyer of OTP verification
+        notificationService.sendNotification(
+                saved.getBuyer(),
+                com.bidly.notification.entity.Notification.NotificationType.OTP_VERIFIED,
+                "OTP Verified",
+                "Your OTP was successfully verified by " + saved.getSeller().getName(),
+                saved.getListing(),
+                saved.getOffer(),
+                saved,
+                "View Details",
+                "/orders/" + saved.getId() + "/track",
+                saved.getId(),
+                null
+        );
+
+        // Broadcast OTP_VERIFIED to room
+        chatRoomRepository.findByListingIdAndBuyerId(saved.getListing().getId(), saved.getBuyer().getId()).ifPresent(room -> {
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("eventType", "OTP_VERIFIED");
+            eventData.put("orderId", saved.getId());
+            messagingTemplate.convertAndSend("/topic/chats/" + room.getId(), (Object) eventData);
+        });
+
+        log.info("[OTP] Successfully verified OTP for order {}", orderId);
+        return mapToSummaryDto(saved, currentUserId);
+    }
+
+    /**
+     * Seller marks product SOLD after OTP verification.
+     * Atomically transitions listing to SOLD, completes order, and releases payout.
+     */
+    @Transactional
+    public com.bidly.order.dto.SaleSummaryDto markSold(UUID orderId, UUID currentUserId) {
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId)
+                .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+
+        if (!order.getSeller().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Only the seller can mark this product as sold");
+        }
+
+        if (order.getDeliveryType() == Order.DeliveryType.IN_PERSON_MEETUP && !Boolean.TRUE.equals(order.getMeetupOtpVerified())) {
+            throw BidlyException.badRequest("Cannot mark as sold: OTP verification must be completed first");
+        }
+
+        Listing listing = listingRepository.findByIdWithPessimisticLock(order.getListing().getId())
+                .orElseThrow(() -> BidlyException.notFound("Listing not found"));
+
+        if (listing.getStatus() == Listing.ListingStatus.SOLD && order.getStatus() == Order.OrderStatus.DELIVERED) {
+            log.info("[MARK_SOLD] Listing {} already marked SOLD, returning existing summary", listing.getId());
+            return getSaleSummary(orderId, currentUserId);
+        }
+
+        listing.setStatus(Listing.ListingStatus.SOLD);
+        listingRepository.save(listing);
+
         order.setStatus(Order.OrderStatus.DELIVERED);
         order.setPaymentStatus(Order.PaymentStatus.RELEASED);
         order.setDeliveredAt(Instant.now());
-
         Order saved = orderRepository.save(order);
 
         // Credit seller funds in wallet
         walletService.topUpFunds(
-                order.getSeller().getId(),
-                order.getAmount(),
-                "Direct sale payout for verified handover order #" + order.getOrderNumber()
+                saved.getSeller().getId(),
+                saved.getAmount(),
+                "Direct sale payout for verified order #" + saved.getOrderNumber()
         );
 
-        trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.DELIVERED, "Handover Completed", "In-person handover verified with OTP code", Instant.now()));
+        trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.DELIVERED, "Product Sold", "Handover completed and product marked as SOLD", Instant.now()));
 
-        return mapToSummaryDto(saved, currentUserId);
+        // Disclose real-time events to both parties
+        notificationService.sendNotification(
+                saved.getBuyer(),
+                com.bidly.notification.entity.Notification.NotificationType.ITEM_SOLD,
+                "Product Handover Completed",
+                "Your purchase of " + listing.getTitle() + " has been marked sold. Please rate your experience!",
+                listing,
+                saved.getOffer(),
+                saved,
+                "Rate Seller",
+                "/orders/" + saved.getId() + "/review",
+                saved.getId(),
+                null
+        );
+
+        notificationService.sendNotification(
+                saved.getSeller(),
+                com.bidly.notification.entity.Notification.NotificationType.TRANSACTION_COMPLETED,
+                "Product Sold Successfully!",
+                "Your " + listing.getTitle() + " has been marked SOLD to " + saved.getBuyer().getName(),
+                listing,
+                saved.getOffer(),
+                saved,
+                "View Sale Details",
+                "/my-listings/sale-summary/" + saved.getId(),
+                saved.getId(),
+                null
+        );
+
+        // Broadcast to chat room
+        chatRoomRepository.findByListingIdAndBuyerId(listing.getId(), saved.getBuyer().getId()).ifPresent(room -> {
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("eventType", "TRANSACTION_COMPLETED");
+            eventData.put("orderId", saved.getId());
+            eventData.put("listingId", listing.getId());
+            eventData.put("status", "SOLD");
+            messagingTemplate.convertAndSend("/topic/chats/" + room.getId(), (Object) eventData);
+        });
+
+        log.info("[MARK_SOLD] Order {} and listing {} transitioned to SOLD by seller {}", orderId, listing.getId(), currentUserId);
+        return getSaleSummary(orderId, currentUserId);
+    }
+
+    /**
+     * Retrieves authoritative sale summary for a completed order.
+     */
+    @Transactional(readOnly = true)
+    public com.bidly.order.dto.SaleSummaryDto getSaleSummary(UUID orderId, UUID currentUserId) {
+        Order order = orderRepository.findById(orderId)
+                .or(() -> orderRepository.findFirstByListingIdOrderByCreatedAtDesc(orderId))
+                .orElseThrow(() -> BidlyException.notFound("Order not found for: " + orderId));
+
+        if (!order.getSeller().getId().equals(currentUserId) && !order.getBuyer().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("You are not authorized to view this sale summary");
+        }
+
+        Listing listing = order.getListing();
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd MMM yyyy").withZone(ZoneId.of("Asia/Kolkata"));
+        Instant saleDate = order.getDeliveredAt() != null ? order.getDeliveredAt() : order.getCreatedAt();
+
+        com.bidly.order.dto.SaleSummaryDto dto = new com.bidly.order.dto.SaleSummaryDto();
+        dto.setOrderId(order.getId());
+        dto.setOrderNumber(order.getOrderNumber());
+        dto.setListingId(listing.getId());
+        dto.setListingTitle(listing.getTitle());
+
+        String primaryImg = (listing.getMedia() != null && !listing.getMedia().isEmpty())
+                ? listing.getMedia().get(0).getUrl() : null;
+        dto.setListingImageUrl(mediaService.generatePresignedGetUrl(primaryImg, Duration.ofHours(4)));
+
+        dto.setBuyerId(order.getBuyer().getId());
+        dto.setBuyerName(order.getBuyer().getName());
+        dto.setSellerId(order.getSeller().getId());
+        dto.setSellerName(order.getSeller().getName());
+        dto.setSaleType(order.getOrderSource() == Order.OrderSource.DIRECT_SALE ? "Direct Buy" : "Auction");
+        dto.setFinalPrice(order.getAmount());
+        dto.setPlatformFee(order.getPlatformFee());
+        dto.setTotalAmount(order.getTotalAmount());
+        dto.setSaleDate(saleDate);
+        dto.setSaleDateFormatted(dtf.format(saleDate));
+        dto.setPayoutStatus(order.getPaymentStatus() == Order.PaymentStatus.RELEASED ? "Released to Wallet" : "Offline payment");
+        dto.setListingCustomId("#LST-" + listing.getId().toString().substring(0, 8).toUpperCase());
+        dto.setTransactionId("#TXN-" + order.getOrderNumber().replace("ORD-", ""));
+
+        return dto;
     }
 
     /**
@@ -184,10 +498,10 @@ public class OrderService {
                 totalAmount
         );
 
-        order.setCourierPartner("Ekart Logistics");
-        order.setTrackingNumber("EKRT202608" + String.format("%04d", new Random().nextInt(9000) + 1000) + "IN");
-        order.setEstimatedDeliveryDate(Instant.now().plus(Duration.ofDays(2)));
-        order.setStatus(Order.OrderStatus.SHIPPED); // advanced to realistic delivery demo state
+        order.setCourierPartner(null);
+        order.setTrackingNumber(null);
+        order.setEstimatedDeliveryDate(null);
+        order.setStatus(Order.OrderStatus.AUCTION_WON);
         order.setPaymentStatus(Order.PaymentStatus.IN_ESCROW);
 
         Order savedOrder = orderRepository.save(order);
@@ -195,16 +509,13 @@ public class OrderService {
         // Convert reserved funds into Escrow Hold
         walletService.convertReservationToEscrow(winningBid.getBidder().getId(), wonAmount, savedOrder.getId());
 
-        // Create realistic tracking timeline
-        Instant t0 = Instant.now().minus(Duration.ofHours(24));
-        Instant t1 = t0.plus(Duration.ofHours(2));
-        Instant t2 = t1.plus(Duration.ofHours(18));
-        Instant t3 = t2.plus(Duration.ofHours(4));
-
-        trackingEventRepository.save(new OrderTrackingEvent(savedOrder, Order.OrderStatus.AUCTION_WON, "Auction Won", "You won the auction", t0));
-        trackingEventRepository.save(new OrderTrackingEvent(savedOrder, Order.OrderStatus.SELLER_CONFIRMED, "Seller Confirmed", "Seller accepted the order", t1));
-        trackingEventRepository.save(new OrderTrackingEvent(savedOrder, Order.OrderStatus.PACKED, "Packed", "Item packed and ready", t2));
-        trackingEventRepository.save(new OrderTrackingEvent(savedOrder, Order.OrderStatus.SHIPPED, "Shipped", "Handed over to Ekart Logistics", t3));
+        trackingEventRepository.save(new OrderTrackingEvent(
+                savedOrder,
+                Order.OrderStatus.AUCTION_WON,
+                "Auction Won",
+                "You won the auction with a winning bid of ₹" + wonAmount,
+                Instant.now()
+        ));
 
         return savedOrder;
     }
@@ -281,7 +592,7 @@ public class OrderService {
         dto.setTotalAmount(o.getTotalAmount());
         dto.setStatus(o.getStatus().name());
         dto.setPaymentStatus(o.getPaymentStatus().name());
-        dto.setCourierPartner(o.getCourierPartner() != null ? o.getCourierPartner() : "Ekart Logistics");
+        dto.setCourierPartner(o.getCourierPartner());
         dto.setTrackingNumber(o.getTrackingNumber());
         dto.setEstimatedDeliveryDate(o.getEstimatedDeliveryDate());
         dto.setDeliveredAt(o.getDeliveredAt());
@@ -367,158 +678,96 @@ public class OrderService {
                     return true;
                 })
                 .map(o -> mapToSummaryDto(o, currentUserId))
-                .collect(Collectors.toList());
-
-        // If no orders exist in database for this user yet, provide rich mockup data matching Image 4
-        if (dtos.isEmpty()) {
-            return getMockOrders(source);
-        }
-
-        return dtos;
+                .collect(Collectors.toList());        return dtos;
     }
 
-    private List<OrderSummaryDto> getMockOrders(String source) {
-        List<OrderSummaryDto> list = new ArrayList<>();
+    /**
+     * Seller submits real courier shipment tracking details.
+     * Transitions order to SHIPPED, logs tracking event, notifies buyer, sends chat card.
+     */
+    @Transactional
+    public OrderSummaryDto createCourierShipment(UUID orderId, UUID currentUserId, com.bidly.order.dto.CourierShipmentRequest req) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
 
-        if (source == null || "ALL".equalsIgnoreCase(source) || "AUCTION".equalsIgnoreCase(source)) {
-            // Auction Item 1: Sony PS5 Console
-            OrderSummaryDto ps5 = new OrderSummaryDto();
-            ps5.setId(UUID.fromString("11111111-1111-1111-1111-111111111111"));
-            ps5.setOrderNumber("ORD-2026-00841");
-            ps5.setProductTitle("Sony PS5 Console");
-            ps5.setProductCondition("LIKE_NEW");
-            ps5.setWonAmount(BigDecimal.valueOf(30000));
-            ps5.setTotalAmount(BigDecimal.valueOf(30600));
-            ps5.setStatus("DELIVERED");
-            ps5.setPaymentStatus("RELEASED");
-            ps5.setOrderSource("AUCTION");
-            ps5.setSellerName("GameZone Store");
-            ps5.setSellerRating(4.8);
-            ps5.setDeliveredAt(Instant.now().minus(Duration.ofDays(80)));
-            ps5.setTrackingTimeline(createSampleTimeline("Sony PS5 Console", BigDecimal.valueOf(30000), "12 Jun 2026"));
-            list.add(ps5);
-
-            // Auction Item 2: iPhone 14 Pro
-            OrderSummaryDto iphone = new OrderSummaryDto();
-            iphone.setId(UUID.fromString("22222222-2222-2222-2222-222222222222"));
-            iphone.setOrderNumber("ORD-2025-00412");
-            iphone.setProductTitle("iPhone 14 Pro");
-            iphone.setProductCondition("BRAND_NEW");
-            iphone.setWonAmount(BigDecimal.valueOf(62000));
-            iphone.setTotalAmount(BigDecimal.valueOf(63240));
-            iphone.setStatus("DELIVERED");
-            iphone.setPaymentStatus("RELEASED");
-            iphone.setOrderSource("AUCTION");
-            iphone.setSellerName("Rahul Sharma");
-            iphone.setSellerRating(4.9);
-            iphone.setDeliveredAt(Instant.now().minus(Duration.ofDays(480)));
-            iphone.setTrackingTimeline(createSampleTimeline("iPhone 14 Pro", BigDecimal.valueOf(62000), "2 May 2025"));
-            list.add(iphone);
+        if (!order.getSeller().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Only the seller can dispatch this courier shipment");
         }
 
-        if (source == null || "ALL".equalsIgnoreCase(source) || "DIRECT_SALE".equalsIgnoreCase(source) || "DIRECT".equalsIgnoreCase(source)) {
-            // Direct Buy Item 1: Ergonomic Study Chair
-            OrderSummaryDto chair = new OrderSummaryDto();
-            chair.setId(UUID.fromString("33333333-3333-3333-3333-333333333333"));
-            chair.setOrderNumber("ORD-2026-00841");
-            chair.setProductTitle("Ergonomic Study Chair");
-            chair.setProductCondition("LIKE_NEW");
-            chair.setWonAmount(BigDecimal.valueOf(4200));
-            chair.setTotalAmount(BigDecimal.valueOf(4284));
-            chair.setStatus("DELIVERED");
-            chair.setPaymentStatus("RELEASED");
-            chair.setOrderSource("DIRECT_SALE");
-            chair.setSellerName("Home Essentials");
-            chair.setSellerRating(4.7);
-            chair.setDeliveredAt(Instant.now().minus(Duration.ofDays(89)));
-            chair.setTrackingTimeline(createSampleTimeline("Ergonomic Study Chair", BigDecimal.valueOf(4200), "3 Jun 2026"));
-            list.add(chair);
-
-            // Direct Buy Item 2: Sony Headphones
-            OrderSummaryDto headphones = new OrderSummaryDto();
-            headphones.setId(UUID.fromString("44444444-4444-4444-4444-444444444444"));
-            headphones.setOrderNumber("ORD-2026-00719");
-            headphones.setProductTitle("Sony Headphones");
-            headphones.setProductCondition("GOOD");
-            headphones.setWonAmount(BigDecimal.valueOf(2800));
-            headphones.setTotalAmount(BigDecimal.valueOf(2856));
-            headphones.setStatus("DELIVERED");
-            headphones.setPaymentStatus("RELEASED");
-            headphones.setOrderSource("DIRECT_SALE");
-            headphones.setSellerName("Audio World");
-            headphones.setSellerRating(4.6);
-            headphones.setDeliveredAt(Instant.now().minus(Duration.ofDays(103)));
-            headphones.setTrackingTimeline(createSampleTimeline("Sony Headphones", BigDecimal.valueOf(2800), "20 May 2026"));
-            list.add(headphones);
-
-            // Direct Buy Item 3: Desk Lamp LED
-            OrderSummaryDto lamp = new OrderSummaryDto();
-            lamp.setId(UUID.fromString("55555555-5555-5555-5555-555555555555"));
-            lamp.setOrderNumber("ORD-2026-00620");
-            lamp.setProductTitle("Desk Lamp LED");
-            lamp.setProductCondition("LIKE_NEW");
-            lamp.setWonAmount(BigDecimal.valueOf(850));
-            lamp.setTotalAmount(BigDecimal.valueOf(867));
-            lamp.setStatus("DELIVERED");
-            lamp.setPaymentStatus("RELEASED");
-            lamp.setOrderSource("DIRECT_SALE");
-            lamp.setSellerName("Arjun Electricals");
-            lamp.setSellerRating(4.8);
-            lamp.setDeliveredAt(Instant.now().minus(Duration.ofDays(115)));
-            lamp.setTrackingTimeline(createSampleTimeline("Desk Lamp LED", BigDecimal.valueOf(850), "8 May 2026"));
-            list.add(lamp);
+        if (order.getStatus() == Order.OrderStatus.DELIVERED || order.getStatus() == Order.OrderStatus.CANCELLED) {
+            throw BidlyException.badRequest("Cannot dispatch shipment for order in status: " + order.getStatus());
         }
 
-        return list;
-    }
+        order.setDeliveryType(Order.DeliveryType.COURIER);
+        order.setCourierPartner(req.getCourierPartner().trim());
+        order.setTrackingNumber(req.getTrackingNumber().trim());
+        order.setEstimatedDeliveryDate(req.getEstimatedDeliveryDate());
+        order.setStatus(Order.OrderStatus.SHIPPED);
 
-    private List<OrderTrackingEventDto> createSampleTimeline(String title, BigDecimal amount, String dateStr) {
-        List<OrderTrackingEventDto> events = new ArrayList<>();
-        events.add(new OrderTrackingEventDto(
-                UUID.randomUUID(),
-                "DELIVERED",
-                "Delivered",
-                "Item collected at meetup point",
-                Instant.now(),
-                "11:30 AM · " + dateStr,
-                true
+        Order saved = orderRepository.save(order);
+
+        trackingEventRepository.save(new OrderTrackingEvent(
+                saved,
+                Order.OrderStatus.SHIPPED,
+                "Shipment Dispatched",
+                "Package handed over to " + req.getCourierPartner().trim() + " (Tracking: " + req.getTrackingNumber().trim() + ")",
+                Instant.now()
         ));
-        events.add(new OrderTrackingEventDto(
-                UUID.randomUUID(),
-                "MEETUP_SCHEDULED",
-                "Meetup Scheduled",
-                "Meetup confirmed at Anna Nagar",
-                Instant.now().minus(Duration.ofHours(2)),
-                "9:00 AM · " + dateStr,
-                true
-        ));
-        events.add(new OrderTrackingEventDto(
-                UUID.randomUUID(),
-                "PAYMENT_DONE",
-                "Payment Done",
-                "₹" + amount + " paid via GPay",
-                Instant.now().minus(Duration.ofHours(17)),
-                "6:45 PM · " + dateStr,
-                true
-        ));
-        events.add(new OrderTrackingEventDto(
-                UUID.randomUUID(),
-                "BID_WON",
-                "Bid Won",
-                "Auction closed · Winning bid ₹" + amount,
-                Instant.now().minus(Duration.ofHours(19)),
-                "5:00 PM · " + dateStr,
-                true
-        ));
-        events.add(new OrderTrackingEventDto(
-                UUID.randomUUID(),
-                "BID_PLACED",
-                "Bid Placed",
-                "You placed a bid of ₹" + amount.multiply(BigDecimal.valueOf(0.95)).setScale(0, RoundingMode.DOWN),
-                Instant.now().minus(Duration.ofHours(22)),
-                "2:15 PM · " + dateStr,
-                true
-        ));
-        return events;
+
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("EEE, d MMM").withZone(ZoneId.of("Asia/Kolkata"));
+        String estDateFormatted = dtf.format(req.getEstimatedDeliveryDate());
+
+        // Send persistent notification to Buyer
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("trackingNumber", req.getTrackingNumber().trim());
+        meta.put("courierPartner", req.getCourierPartner().trim());
+        meta.put("estimatedDeliveryDate", estDateFormatted);
+        meta.put("orderId", saved.getId().toString());
+
+        notificationService.sendNotificationWithMeta(
+                saved.getBuyer(),
+                com.bidly.notification.entity.Notification.NotificationType.SHIPPED,
+                "Shipment Dispatched",
+                "Your order for " + saved.getListing().getTitle() + " has been shipped via " + req.getCourierPartner().trim(),
+                saved.getListing(),
+                saved.getOffer(),
+                saved,
+                "Track My Order",
+                "/orders/" + saved.getId() + "/track",
+                saved.getId(),
+                meta
+        );
+
+        // Disclose real-time chat card to room
+        chatRoomRepository.findByListingIdAndBuyerId(saved.getListing().getId(), saved.getBuyer().getId()).ifPresent(room -> {
+            try {
+                com.bidly.chat.entity.ChatMessage msg = new com.bidly.chat.entity.ChatMessage();
+                msg.setRoomId(room.getId());
+                msg.setSenderId(saved.getSeller().getId());
+                msg.setContent("Shipment Dispatched via " + req.getCourierPartner().trim() + " (Tracking: " + req.getTrackingNumber().trim() + ")");
+                msg.setType(com.bidly.chat.entity.ChatMessage.MessageType.ORDER_UPDATE);
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                msg.setMetadata(mapper.writeValueAsString(meta));
+                chatMessageRepository.save(msg);
+
+                messagingTemplate.convertAndSend("/topic/chat/" + room.getId(), msg);
+            } catch (Exception e) {
+                log.warn("[SHIPMENT_CHAT] Failed to send chat message for room {}: {}", room.getId(), e.getMessage());
+            }
+        });
+
+        // Broadcast notification update to buyer topic
+        Map<String, Object> wsEvent = new HashMap<>();
+        wsEvent.put("eventType", "SHIPMENT_DISPATCHED");
+        wsEvent.put("orderId", saved.getId());
+        wsEvent.put("trackingNumber", req.getTrackingNumber().trim());
+        wsEvent.put("courierPartner", req.getCourierPartner().trim());
+        wsEvent.put("estimatedDeliveryDate", estDateFormatted);
+        messagingTemplate.convertAndSend("/topic/users/" + saved.getBuyer().getId() + "/notifications", wsEvent);
+
+        log.info("[COURIER_SHIPMENT] Order {} shipped via {} (Tracking: {}) by seller {}",
+                saved.getId(), req.getCourierPartner(), req.getTrackingNumber(), currentUserId);
+
+        return mapToSummaryDto(saved, currentUserId);
     }
 }

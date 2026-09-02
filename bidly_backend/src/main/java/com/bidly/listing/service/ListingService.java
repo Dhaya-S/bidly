@@ -179,7 +179,8 @@ public class ListingService {
             listing.setMediaProcessingStatus(Listing.MediaProcessingStatus.READY);
         }
         listing.setStatus(Listing.ListingStatus.ACTIVE);
-        listing.setRating(seller.getTrustScore() > 0 ? (seller.getTrustScore() / 20.0) : 4.8);
+        Integer trustScore = seller.getTrustScore();
+        listing.setRating(trustScore != null && trustScore > 0 ? (trustScore / 20.0) : 4.8);
         listing.setDistanceKm(0.0); // 0km distance for the creator
 
         // Set primary thumbnail URL if media exists
@@ -689,7 +690,7 @@ public class ListingService {
         dto.setLikesCount(l.getLikesCount());
         dto.setBidsCount(l.getBidsCount());
         dto.setWishlisted(false);
-        dto.setLikedByMe(currentUserId != null && listingLikeRepository.existsByUserIdAndListingId(currentUserId, l.getId()));
+        dto.setLikedByMe(currentUserId != null && listingLikeRepository != null && listingLikeRepository.existsByUserIdAndListingId(currentUserId, l.getId()));
 
         if (l.getCategory() != null) {
             dto.setCategoryName(l.getCategory().getName());

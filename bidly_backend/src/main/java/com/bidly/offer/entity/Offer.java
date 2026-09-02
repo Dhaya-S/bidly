@@ -44,6 +44,18 @@ public class Offer extends BaseEntity {
     @Column(name = "expires_at")
     private Instant expiresAt;
 
+    @Column(name = "rejection_reason", length = 100)
+    private String rejectionReason;
+
+    @Column(name = "rejection_note", columnDefinition = "TEXT")
+    private String rejectionNote;
+
+    @Column(name = "rejected_at")
+    private Instant rejectedAt;
+
+    @Column(name = "client_offer_id", length = 100)
+    private String clientOfferId;
+
     public enum OfferStatus {
         PENDING, ACCEPTED, REJECTED, COUNTERED, CANCELLED, EXPIRED
     }
@@ -82,4 +94,16 @@ public class Offer extends BaseEntity {
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+
+    public String getRejectionReason() { return rejectionReason; }
+    public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+
+    public String getRejectionNote() { return rejectionNote; }
+    public void setRejectionNote(String rejectionNote) { this.rejectionNote = rejectionNote; }
+
+    public Instant getRejectedAt() { return rejectedAt; }
+    public void setRejectedAt(Instant rejectedAt) { this.rejectedAt = rejectedAt; }
+
+    public String getClientOfferId() { return clientOfferId; }
+    public void setClientOfferId(String clientOfferId) { this.clientOfferId = clientOfferId; }
 }

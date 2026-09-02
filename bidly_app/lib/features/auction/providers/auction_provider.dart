@@ -410,6 +410,34 @@ class AuctionNotifier extends StateNotifier<AuctionState> {
     }
   }
 
+  Future<AuctionWinnerModel?> endAuction(String listingId) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final res = await _apiClient.post('/auctions/$listingId/end');
+      state = state.copyWith(isLoading: false);
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final winner = AuctionWinnerModel.fromJson(res.data['data'] as Map<String, dynamic>);
+        return winner;
+      } else {
+        state = state.copyWith(errorMessage: res.data?['message'] ?? 'Failed to end auction');
+        return null;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: 'Error ending auction: $e');
+      return null;
+    }
+  }
+
+  Future<AuctionWinnerModel?> fetchAuctionWinner(String listingId) async {
+    try {
+      final res = await _apiClient.get('/auctions/$listingId/winner');
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        return AuctionWinnerModel.fromJson(res.data['data'] as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
   void disconnectWebSocket() {
     _webSocketService.disconnect();
   }

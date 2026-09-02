@@ -487,3 +487,44 @@ class AuctionEventModel {
     );
   }
 }
+
+class AuctionWinnerModel {
+  final String? orderId;
+  final String listingId;
+  final String listingTitle;
+  final String? listingImageUrl;
+  final String? winnerId;
+  final String winnerName;
+  final String winnerLocality;
+  final double winningAmount;
+  final bool paymentSecuredInEscrow;
+  final String orderStatus;
+
+  AuctionWinnerModel({
+    this.orderId,
+    required this.listingId,
+    required this.listingTitle,
+    this.listingImageUrl,
+    this.winnerId,
+    required this.winnerName,
+    required this.winnerLocality,
+    required this.winningAmount,
+    this.paymentSecuredInEscrow = true,
+    required this.orderStatus,
+  });
+
+  factory AuctionWinnerModel.fromJson(Map<String, dynamic> json) {
+    return AuctionWinnerModel(
+      orderId: json['orderId']?.toString(),
+      listingId: json['listingId']?.toString() ?? '',
+      listingTitle: json['listingTitle']?.toString() ?? '',
+      listingImageUrl: json['listingImageUrl']?.toString(),
+      winnerId: json['winnerId']?.toString(),
+      winnerName: json['winnerName']?.toString() ?? 'Winner',
+      winnerLocality: json['winnerLocality']?.toString() ?? 'Verified Buyer',
+      winningAmount: (json['winningAmount'] as num?)?.toDouble() ?? 0.0,
+      paymentSecuredInEscrow: json['paymentSecuredInEscrow'] ?? true,
+      orderStatus: json['orderStatus']?.toString() ?? 'AUCTION_WON',
+    );
+  }
+}

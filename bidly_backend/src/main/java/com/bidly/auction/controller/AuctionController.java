@@ -98,6 +98,27 @@ public class AuctionController {
     }
 
     /**
+     * POST /api/auctions/{listingId}/end — Seller manually ends active auction
+     */
+    @PostMapping("/{listingId}/end")
+    public ResponseEntity<ApiResponse<com.bidly.auction.dto.AuctionWinnerDto>> endAuction(
+            @PathVariable UUID listingId,
+            @AuthenticationPrincipal UUID currentUserId) {
+        com.bidly.auction.dto.AuctionWinnerDto dto = auctionService.endAuctionManually(listingId, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success("Auction ended successfully", dto));
+    }
+
+    /**
+     * GET /api/auctions/{listingId}/winner — Retrieves winner details for ended auction
+     */
+    @GetMapping("/{listingId}/winner")
+    public ResponseEntity<ApiResponse<com.bidly.auction.dto.AuctionWinnerDto>> getAuctionWinner(
+            @PathVariable UUID listingId) {
+        com.bidly.auction.dto.AuctionWinnerDto dto = auctionService.getAuctionWinner(listingId);
+        return ResponseEntity.ok(ApiResponse.success(dto));
+    }
+
+    /**
      * POST /api/auctions/{listingId}/finalize — Finalizes single auction and converts winning bid to order & escrow
      */
     @PostMapping("/{listingId}/finalize")

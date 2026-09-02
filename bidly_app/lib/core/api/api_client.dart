@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 const String _baseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://127.0.0.1:8081/api', // Uses ADB reverse port forwarding (USB) & emulators
+  defaultValue: 'http://127.0.0.1:8081/api', // Local development (ADB reverse / localhost:8081)
 );
 
 const String _tokenKey = 'bidly_jwt';

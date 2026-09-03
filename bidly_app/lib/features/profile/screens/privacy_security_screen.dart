@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 import 'change_password_screen.dart';
 import 'location_sharing_screen.dart';
 import 'data_privacy_screen.dart';
 import '../../settings/screens/delete_account_screen.dart';
 
-class PrivacySecurityScreen extends StatelessWidget {
+class PrivacySecurityScreen extends ConsumerWidget {
   const PrivacySecurityScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authProvider).user;
+    final userPhone = (user?.phone != null && user!.phone.isNotEmpty) ? '+91 ${user.phone}' : 'Not set';
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -76,7 +80,7 @@ class PrivacySecurityScreen extends StatelessWidget {
                   _buildNavRow(
                     context,
                     title: 'Phone Verification',
-                    subtitle: '+91 98765 43210',
+                    subtitle: userPhone,
                     icon: Icons.phone_android_rounded,
                     trailingWidget: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),

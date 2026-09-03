@@ -262,9 +262,9 @@ class ProductHistoryScreen extends ConsumerWidget {
                               color: AppTheme.textPrimary,
                             ),
                           ),
-                          const Text(
-                            'Anna Nagar, Chennai',
-                            style: TextStyle(
+                          Text(
+                            order.date.isNotEmpty ? 'Purchased on ${order.date}' : 'Verified Seller',
+                            style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 11,
                               color: AppTheme.textSecondary,
@@ -398,7 +398,9 @@ class ProductHistoryScreen extends ConsumerWidget {
                               ),
                               const SizedBox(height: 1),
                               Text(
-                                item.timeFormatted.contains('·') ? item.timeFormatted.split('·').last.trim() : '3 Jun 2026',
+                                item.timeFormatted.contains('·')
+                                    ? item.timeFormatted.split('·').last.trim()
+                                    : item.timeFormatted,
                                 style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 10.5,

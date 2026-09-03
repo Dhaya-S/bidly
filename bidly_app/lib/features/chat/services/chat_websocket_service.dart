@@ -11,14 +11,17 @@ class ChatWebSocketService {
   bool _isConnected = false;
   StompUnsubscribe? _roomSubscription;
   StompUnsubscribe? _userSubscription;
+  StompUnsubscribe? _userNotifSubscription;
 
   final void Function(ChatEventModel event)? onEvent;
+  final void Function(Map<String, dynamic> notificationJson)? onNotification;
   final VoidCallback? onConnected;
   final VoidCallback? onDisconnected;
   final VoidCallback? onResyncRequired;
 
   ChatWebSocketService({
     this.onEvent,
+    this.onNotification,
     this.onConnected,
     this.onDisconnected,
     this.onResyncRequired,
@@ -119,20 +122,46 @@ class ChatWebSocketService {
 
   void _subscribeToUserNotifications(String userId) {
     _userSubscription?.call();
-    final destination = '/topic/users/$userId/chat';
-    debugPrint('[CHAT_WS] SUBSCRIBE destination=$destination');
+    final chatDestination = '/topic/users/$userId/chat';
+    debugPrint('[CHAT_WS] SUBSCRIBE destination=$chatDestination');
 
     _userSubscription = _stompClient?.subscribe(
-      destination: destination,
+      destination: chatDestination,
       callback: (StompFrame frame) {
         if (frame.body != null) {
           try {
             final json = jsonDecode(frame.body!) as Map<String, dynamic>;
+            if (json['notification'] != null && json['notification'] is Map) {
+              onNotification?.call(Map<String, dynamic>.from(json['notification'] as Map));
+            }
             final event = ChatEventModel.fromJson(json, currentUserId: _currentUserId);
-            debugPrint('[CHAT_WS] USER_NOTIFICATION type=${event.eventType}');
+            debugPrint('[CHAT_WS] USER_NOTIFICATION (chat) type=${event.eventType}');
             onEvent?.call(event);
           } catch (e) {
-            debugPrint('[CHAT_WS] Failed to parse notification: $e');
+            debugPrint('[CHAT_WS] Failed to parse chat notification: $e');
+          }
+        }
+      },
+    );
+
+    _userNotifSubscription?.call();
+    final notifDestination = '/topic/users/$userId/notifications';
+    debugPrint('[CHAT_WS] SUBSCRIBE destination=$notifDestination');
+
+    _userNotifSubscription = _stompClient?.subscribe(
+      destination: notifDestination,
+      callback: (StompFrame frame) {
+        if (frame.body != null) {
+          try {
+            final json = jsonDecode(frame.body!) as Map<String, dynamic>;
+            if (json['notification'] != null && json['notification'] is Map) {
+              onNotification?.call(Map<String, dynamic>.from(json['notification'] as Map));
+            }
+            final event = ChatEventModel.fromJson(json, currentUserId: _currentUserId);
+            debugPrint('[CHAT_WS] USER_NOTIFICATION (notifications) type=${event.eventType}');
+            onEvent?.call(event);
+          } catch (e) {
+            debugPrint('[CHAT_WS] Failed to parse primary notification: $e');
           }
         }
       },
@@ -144,6 +173,8 @@ class ChatWebSocketService {
     _roomSubscription = null;
     _userSubscription?.call();
     _userSubscription = null;
+    _userNotifSubscription?.call();
+    _userNotifSubscription = null;
     if (_stompClient != null) {
       debugPrint('[CHAT_WS] DISCONNECTING client');
       _stompClient?.deactivate();

@@ -14,6 +14,7 @@ import '../widgets/reject_offer_bottom_sheet.dart';
 import '../widgets/schedule_meetup_bottom_sheet.dart';
 import '../widgets/buyer_show_otp_modal.dart';
 import 'seller_otp_verification_screen.dart';
+import '../../auction/providers/order_provider.dart';
 
 class OfferChatScreen extends ConsumerStatefulWidget {
   final String listingId;
@@ -45,7 +46,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
   @override
   void initState() {
     super.initState();
-    _offerAmount = widget.listing?.price ?? 1000.0;
+    _offerAmount = widget.listing?.price ?? 0.0;
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initChat();
@@ -82,8 +83,16 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
   Future<void> _initChat() async {
     final chatNotifier = ref.read(chatRoomNotifierProvider.notifier);
     final offerNotifier = ref.read(offerProvider.notifier);
-    await chatNotifier.initRoomForListing(widget.listingId, _offerAmount);
+    final room = await chatNotifier.initRoomForListing(widget.listingId, _offerAmount);
+    if ((_offerAmount == 0.0 || _offerAmount == 100.0) && room != null && room.listingPrice > 0) {
+      if (mounted) {
+        setState(() {
+          _offerAmount = room.listingPrice;
+        });
+      }
+    }
     await offerNotifier.fetchLatestOffer(widget.listingId);
+    ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
     if (mounted) {
       _scrollToBottom();
     }
@@ -352,7 +361,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Courier / Ekart Logistics',
+                              'Courier Dispatch',
                               style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
                             ),
                             Text(
@@ -404,8 +413,20 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                     if (!mounted || !parentContext.mounted) return;
                     if (orderId != null) {
                       await ref.read(chatRoomNotifierProvider.notifier).sendTextMessage('🎉 Offer accepted! Order created.');
-                      if (!mounted || !parentContext.mounted) return;
-                      parentContext.push('/orders/$orderId/track');
+                      await ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId);
+                      final roomId = ref.read(chatRoomNotifierProvider).room?.id;
+                      if (roomId != null) {
+                        await ref.read(chatRoomNotifierProvider.notifier).loadMessages(roomId, isSilent: true);
+                      }
+                      _scrollToBottom();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Offer accepted! You can now schedule meetup.'),
+                            backgroundColor: Color(0xFF004E54),
+                          ),
+                        );
+                      }
                     }
                   },
                   style: ElevatedButton.styleFrom(
@@ -567,6 +588,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     final offerState = ref.watch(offerProvider);
     final activeOffer = offerState.activeOffer;
     final currentUserId = ref.watch(authProvider).user?.id ?? '';
+    final orderState = ref.watch(orderProvider);
+    final order = orderState.order;
     final room = chatState.room;
     final listing = widget.listing;
 
@@ -661,7 +684,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
           Column(
             children: [
               // Auction Won / Finalized Banner
-              if ((listing?.sellingMethod.toUpperCase() == 'AUCTION') || (activeOffer?.isAccepted ?? false))
+              if ((listing?.sellingMethod.toUpperCase() == 'AUCTION') || (activeOffer?.isAccepted ?? false) || order != null)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -672,7 +695,9 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Auction Won · ₹${listingPrice.toInt()} · $listingTitle',
+                          order != null
+                              ? 'Auction Won · ₹${order.wonAmount.toInt()} · ${order.productTitle}'
+                              : 'Auction Won · ₹${listingPrice.toInt()} · $listingTitle',
                           style: const TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 12,
@@ -688,7 +713,9 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                         height: 28,
                         child: OutlinedButton(
                           onPressed: () {
-                            if (activeOffer?.orderId != null) {
+                            if (order != null) {
+                              context.push('/orders/${order.id}/track');
+                            } else if (activeOffer?.orderId != null) {
                               context.push('/orders/${activeOffer!.orderId}/track');
                             } else {
                               context.push('/orders/listing/${widget.listingId}/track');
@@ -759,63 +786,41 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       ),
                     ),
                     if (activeOffer != null && activeOffer.orderId != null && activeOffer.isBuyer) ...[
-                      ElevatedButton.icon(
-                        onPressed: () => BuyerShowOtpModal.show(context, orderId: activeOffer.orderId!),
-                        icon: const Icon(Icons.lock_open_rounded, size: 13, color: Colors.white),
-                        label: const Text(
-                          'Show OTP',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF004E54),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ] else if (activeOffer != null && activeOffer.orderId != null && activeOffer.isSeller) ...[
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          OutlinedButton.icon(
-                            onPressed: () => ScheduleMeetupBottomSheet.show(context, orderId: activeOffer.orderId!),
-                            icon: const Icon(Icons.calendar_today_outlined, size: 12, color: Color(0xFF004E54)),
-                            label: const Text(
-                              'Schedule',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF004E54)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE8F5E9),
+                              borderRadius: BorderRadius.circular(6),
                             ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFF004E54)),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            child: const Text(
+                              '• Meetup',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF2E7D32),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 8),
                           ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (ctx) => SellerOtpVerificationScreen(
-                                    orderId: activeOffer.orderId!,
-                                    buyerName: activeOffer.buyerName,
-                                    productTitle: activeOffer.listingTitle ?? 'Product',
-                                    productPrice: activeOffer.currentEffectiveAmount,
-                                    productImageUrl: activeOffer.listingImageUrl,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.check_circle_outline, size: 12, color: Colors.white),
+                            onPressed: () => BuyerShowOtpModal.show(context, orderId: activeOffer.orderId!),
+                            icon: const Icon(Icons.lock_open_rounded, size: 14, color: Colors.white),
                             label: const Text(
-                              'Verify OTP',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                              'Show OTP',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF004E54),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -823,13 +828,40 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                           ),
                         ],
                       ),
-                    ] else ...[
+                    ] else if (activeOffer != null && activeOffer.orderId != null && activeOffer.isSeller) ...[
                       OutlinedButton.icon(
-                        onPressed: _showScheduleDialog,
-                        icon: const Icon(Icons.calendar_today_outlined, size: 14, color: AppTheme.primary),
+                        onPressed: () => ScheduleMeetupBottomSheet.show(
+                          context,
+                          orderId: activeOffer.orderId!,
+                          initialLocation: activeOffer.meetupLocation,
+                          onMeetupScheduled: () => ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId),
+                        ),
+                        icon: const Icon(Icons.calendar_today_outlined, size: 13, color: Color(0xFF004E54)),
                         label: const Text(
                           'Schedule',
                           style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF004E54),
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF004E54), width: 1.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ] else ...[
+                      OutlinedButton.icon(
+                        onPressed: _showScheduleDialog,
+                        icon: const Icon(Icons.calendar_today_outlined, size: 13, color: AppTheme.primary),
+                        label: const Text(
+                          'Schedule',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             color: AppTheme.primary,
@@ -837,7 +869,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                         ),
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: AppTheme.primary),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -848,8 +880,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                 ),
               ),
 
-              // Negotiation Action Banner
-              if (activeOffer != null) _buildOfferNegotiationBanner(activeOffer),
+              // Buyer Protection Banner
+              _buildBuyerProtectionBanner(),
 
               // Message List
               Expanded(
@@ -952,107 +984,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                 ),
               ),
 
-              // Bottom Offer Negotiation Card
-              if (activeOffer == null || activeOffer.isRejected || activeOffer.isCancelled) ...[
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, -3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Make Direct Offer',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.textPrimary,
-                            ),
-                          ),
-                          Text(
-                            '₹${_offerAmount.toInt()}',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: AppTheme.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          _buildPresetOfferChip(listingPrice * 0.85),
-                          _buildPresetOfferChip(listingPrice * 0.90),
-                          _buildPresetOfferChip(listingPrice * 0.95),
-                          _buildPresetOfferChip(listingPrice),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _offerAmount = (_offerAmount - 500).clamp(100.0, 10000000.0);
-                              });
-                            },
-                            icon: const Icon(Icons.remove_circle_outline, color: AppTheme.primary),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          Expanded(
-                            child: Slider(
-                              value: _offerAmount.clamp(listingPrice * 0.5, listingPrice * 1.2),
-                              min: (listingPrice * 0.5).roundToDouble(),
-                              max: (listingPrice * 1.2).roundToDouble(),
-                              activeColor: AppTheme.primary,
-                              inactiveColor: const Color(0xFFCBD5E1),
-                              onChanged: (val) {
-                                setState(() {
-                                  _offerAmount = val.roundToDouble();
-                                });
-                              },
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _offerAmount = _offerAmount + 500;
-                              });
-                            },
-                            icon: const Icon(Icons.add_circle_outline, color: AppTheme.primary),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          const SizedBox(width: 6),
-                          ElevatedButton(
-                            onPressed: offerState.isSubmitting ? null : _submitNewOffer,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            child: offerState.isSubmitting
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Text('Send Offer', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              // Bottom Action / Negotiation Bar (Matching Image 1 Screen 2 & Image 3 Screen 4 & Screen 5)
+              _buildBottomOfferBar(activeOffer, listingPrice, offerState),
 
               // Text Input Bar
               Container(
@@ -1126,6 +1059,558 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     );
   }
 
+  Widget _buildBuyerProtectionBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF1F5F9),
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.verified_user_outlined, size: 16, color: Color(0xFF004E54)),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'BIDLY Buyer Protection is active for this transaction.',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF004E54),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomOfferBar(
+      OfferModel? activeOffer, double listingPrice, OfferState offerState) {
+    final isSeller = activeOffer?.isSeller ?? false;
+    final isBuyer = !isSeller;
+
+    // Case 1: Seller with pending offer (Image 3 Screen 4)
+    if (isSeller && activeOffer != null && activeOffer.isPending) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: OutlinedButton(
+                  onPressed: () => RejectOfferBottomSheet.show(
+                    context,
+                    offerId: activeOffer.id,
+                    onRejected: () => ref
+                        .read(offerProvider.notifier)
+                        .fetchLatestOffer(widget.listingId),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: Colors.white,
+                  ),
+                  child: const Text(
+                    'Reject Offer',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFEF4444),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: () => _showAcceptDialog(activeOffer),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text(
+                    'Accept Offer',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Case 2: Seller with accepted offer (Image 3 Screen 5 / Image 4 Screen 1)
+    if (isSeller && activeOffer != null && activeOffer.isAccepted) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: OutlinedButton(
+                  onPressed: () => RejectOfferBottomSheet.show(
+                    context,
+                    offerId: activeOffer.id,
+                    onRejected: () => ref
+                        .read(offerProvider.notifier)
+                        .fetchLatestOffer(widget.listingId),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: Colors.white,
+                  ),
+                  child: const Text(
+                    'Reject Offer',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFEF4444),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (activeOffer.orderId != null) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (ctx) => SellerOtpVerificationScreen(
+                            orderId: activeOffer.orderId!,
+                            buyerName: activeOffer.buyerName,
+                            meetupLocation: activeOffer.meetupLocation,
+                            productTitle: activeOffer.listingTitle ?? 'Product',
+                            productPrice: activeOffer.currentEffectiveAmount,
+                            productImageUrl: activeOffer.listingImageUrl,
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text(
+                    'Mark as sold',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Case 3: Buyer view before offer accepted (Image 1 Screen 2)
+    if (isBuyer &&
+        (activeOffer == null ||
+            activeOffer.isPending ||
+            activeOffer.isRejected ||
+            activeOffer.isCancelled)) {
+      final increments = [500, 1000, 2000, 4000, 6000];
+
+      return Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Quick Increment Pills
+            SizedBox(
+              height: 32,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: increments.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (ctx, i) {
+                  final inc = increments[i];
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _offerAmount = (_offerAmount + inc);
+                      });
+                    },
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Text(
+                        '+ ₹$inc',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Price box with [-] amount [+] and [ Make Offer ] button
+            Row(
+              children: [
+                Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _offerAmount = (_offerAmount - 500)
+                                .clamp(100.0, 10000000.0);
+                          });
+                        },
+                        icon: const Icon(Icons.remove,
+                            size: 18, color: Color(0xFF004E54)),
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 28, minHeight: 28),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '₹ ${_offerAmount.toInt()}',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF004E54),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _offerAmount = (_offerAmount + 500);
+                          });
+                        },
+                        icon: const Icon(Icons.add,
+                            size: 18, color: Color(0xFF004E54)),
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 28, minHeight: 28),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 44,
+                    child: ElevatedButton(
+                      onPressed: offerState.isSubmitting ? null : _submitNewOffer,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF004E54),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: offerState.isSubmitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Text(
+                              'Make Offer',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildMeetingScheduledCard(
+      ChatMessageModel msg, OfferModel? activeOffer, bool isMe, String timeStr) {
+    String date = '';
+    String time = '';
+    String location = '';
+    final lines = (msg.content ?? '').split('\n');
+    for (final line in lines) {
+      if (line.toLowerCase().startsWith('date:')) date = line.substring(5).trim();
+      if (line.toLowerCase().startsWith('time:')) time = line.substring(5).trim();
+      if (line.toLowerCase().startsWith('location:')) location = line.substring(9).trim();
+    }
+    final meta = msg.parsedMetadata ?? {};
+    if (date.isEmpty && meta['meetupDate'] != null) {
+      date = meta['meetupDate'].toString();
+    }
+    if (time.isEmpty && meta['meetupTime'] != null) {
+      time = meta['meetupTime'].toString();
+    }
+    if (location.isEmpty && meta['meetupLocation'] != null) {
+      location = meta['meetupLocation'].toString();
+    }
+    if (date.isEmpty && activeOffer?.meetupTime != null) {
+      date = DateFormat('dd/MM/yy').format(activeOffer!.meetupTime!);
+    }
+    if (time.isEmpty && activeOffer?.meetupTime != null) {
+      time = DateFormat('hh:mma').format(activeOffer!.meetupTime!);
+    }
+    if (location.isEmpty && (activeOffer?.meetupLocation?.isNotEmpty ?? false)) {
+      location = activeOffer!.meetupLocation!;
+    }
+    if (date.isEmpty) {
+      date = DateFormat('dd/MM/yy').format(msg.createdAt);
+    }
+    if (time.isEmpty) {
+      time = DateFormat('hh:mma').format(msg.createdAt);
+    }
+    if (location.isEmpty) {
+      location = 'Agreed in chat';
+    }
+
+    final orderId = activeOffer?.orderId ?? msg.parsedMetadata?['orderId']?.toString();
+    final isSeller = activeOffer?.isSeller ?? false;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        width: 290,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.25), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Dark Teal Banner
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(
+                color: Color(0xFF004E54),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.calendar_today_rounded, color: Color(0xFF5EEAD4), size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'Meeting Scheduled',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Date:',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                      Text(
+                        date,
+                        style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.textPrimary),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Time:',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                      Text(
+                        time,
+                        style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Location:',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                      Text(
+                        location,
+                        style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF004E54)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // In-card Action Button (Mark As Sold for Seller / Show OTP for Buyer)
+                  if (orderId != null)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 40,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          if (isSeller) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (ctx) => SellerOtpVerificationScreen(
+                                  orderId: orderId,
+                                  buyerName: activeOffer?.buyerName ?? 'Buyer',
+                                  meetupTime: time,
+                                  meetupLocation: location,
+                                  productTitle: activeOffer?.listingTitle ?? 'Product',
+                                  productPrice: activeOffer?.currentEffectiveAmount ?? 0.0,
+                                  productImageUrl: activeOffer?.listingImageUrl,
+                                ),
+                              ),
+                            );
+                          } else {
+                            BuyerShowOtpModal.show(context, orderId: orderId);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004E54),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text(
+                          isSeller ? 'Mark As Sold' : 'Show OTP',
+                          style: const TextStyle(
+                              fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      timeStr,
+                      style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDateHeader(String dateText) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 14),
@@ -1147,6 +1632,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildOfferNegotiationBanner(OfferModel offer) {
     if (offer.isAccepted) {
       final isBuyer = offer.isBuyer;
@@ -1440,32 +1926,6 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     return const SizedBox.shrink();
   }
 
-  Widget _buildPresetOfferChip(double amount) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: () => setState(() => _offerAmount = amount.roundToDouble()),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: _offerAmount == amount.roundToDouble() ? AppTheme.primary : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFCBD5E1)),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            '₹${amount.toInt()}',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: _offerAmount == amount.roundToDouble() ? Colors.white : const Color(0xFF334155),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildEmptyState(String sellerName) {
     return Center(
       child: SingleChildScrollView(
@@ -1501,6 +1961,105 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
   Widget _buildMessageItem(ChatMessageModel msg, bool isMe, String sellerInitials, OfferModel? activeOffer) {
     final timeStr = msg.formattedTime;
+
+    if (msg.isDeliveryAddressShared) {
+      final meta = msg.parsedMetadata;
+      final recipient = meta?['recipientName']?.toString() ?? '';
+      final phone = meta?['phone']?.toString() ?? '';
+      final addressLine = meta?['addressLine']?.toString() ?? '';
+      final city = meta?['city']?.toString() ?? '';
+      final pincode = meta?['pincode']?.toString() ?? '';
+
+      final fullAddress = addressLine.isNotEmpty
+          ? '$addressLine, $city - $pincode'
+          : (msg.content?.replaceFirst(RegExp(r'Delivery Address:\s*', caseSensitive: false), '') ?? '');
+
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          width: 290,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.25), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF004E54),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.location_on_rounded, color: Color(0xFF5EEAD4), size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Delivery Address Shared',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (recipient.isNotEmpty) ...[
+                      Text(
+                        recipient + (phone.isNotEmpty ? ' ($phone)' : ''),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    Text(
+                      fullAddress,
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF334155), height: 1.4),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Seller can courier product to this address.',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Color(0xFF64748B)),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        timeStr,
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (msg.isShipmentDispatched) {
       final meta = msg.parsedMetadata;
@@ -1704,61 +2263,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
       );
     }
 
-    if (msg.isMeetup) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          constraints: const BoxConstraints(maxWidth: 280),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFFEFF6FF) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.4), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              )
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.handshake_outlined, color: Color(0xFF2563EB), size: 18),
-                  SizedBox(width: 6),
-                  Text(
-                    'In-Person Meetup',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E40AF)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                msg.content ?? '',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF1E293B)),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    timeStr,
-                    style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
-                  ),
-                  if (isMe) ...[
-                    const SizedBox(width: 4),
-                    _buildStatusIcon(msg),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
+    if (msg.isMeetup || (msg.content != null && msg.content!.contains('Meeting Scheduled'))) {
+      return _buildMeetingScheduledCard(msg, activeOffer, isMe, timeStr);
     }
 
     if (isMe) {

@@ -226,7 +226,7 @@ class _ManageCommunityScreenState extends ConsumerState<ManageCommunityScreen> {
               keyboardType: TextInputType.phone,
               style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
               decoration: InputDecoration(
-                hintText: '9876543210',
+                hintText: '10-digit mobile number',
                 prefixText: '+91 ',
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
@@ -713,7 +713,7 @@ class _ManageCommunityScreenState extends ConsumerState<ManageCommunityScreen> {
   }
 
   String _formatDate(DateTime? dt) {
-    if (dt == null) return 'Jan 2025';
+    if (dt == null) return 'Recently';
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final month = months[dt.month - 1];
     return '$month ${dt.year}';

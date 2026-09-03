@@ -29,7 +29,7 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
   final List<Widget> _pages = [
     const HomeFeedScreen(),
     const ExploreScreen(),
-    const _DummyTabScreen('Sell Product'),
+    const _PlaceholderTabScreen('Sell Product'),
     const CommunitiesScreen(),
     const ProfileScreen(),
   ];
@@ -258,9 +258,9 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
   }
 }
 
-class _DummyTabScreen extends StatelessWidget {
+class _PlaceholderTabScreen extends StatelessWidget {
   final String title;
-  const _DummyTabScreen(this.title);
+  const _PlaceholderTabScreen(this.title);
 
   @override
   Widget build(BuildContext context) {

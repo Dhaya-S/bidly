@@ -36,6 +36,47 @@ class _SellerOtpVerificationScreenState extends ConsumerState<SellerOtpVerificat
   bool _isVerifying = false;
   String? _errorMessage;
 
+  String _buyerName = '';
+  String _meetupTime = '';
+  String _meetupLocation = '';
+  String _productTitle = '';
+  double _productPrice = 0.0;
+  String? _productImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _buyerName = widget.buyerName ?? '';
+    _meetupTime = widget.meetupTime ?? '';
+    _meetupLocation = widget.meetupLocation ?? '';
+    _productTitle = widget.productTitle ?? '';
+    _productPrice = widget.productPrice ?? 0.0;
+    _productImageUrl = widget.productImageUrl;
+    if (_buyerName.isEmpty || _productTitle.isEmpty || _meetupLocation.isEmpty) {
+      _fetchOrderDetails();
+    }
+  }
+
+  Future<void> _fetchOrderDetails() async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.get('/orders/${widget.orderId}');
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final data = Map<String, dynamic>.from(res.data['data'] as Map);
+        if (mounted) {
+          setState(() {
+            _buyerName = data['buyerName']?.toString() ?? _buyerName;
+            _productTitle = data['productTitle']?.toString() ?? _productTitle;
+            _productPrice = (data['totalAmount'] is num) ? (data['totalAmount'] as num).toDouble() : _productPrice;
+            _productImageUrl = data['productImageUrl']?.toString() ?? _productImageUrl;
+            _meetupLocation = data['meetupLocation']?.toString() ?? _meetupLocation;
+            _meetupTime = data['meetupTimeFormatted']?.toString() ?? _meetupTime;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     for (final c in _controllers) {
@@ -73,10 +114,10 @@ class _SellerOtpVerificationScreenState extends ConsumerState<SellerOtpVerificat
           MaterialPageRoute(
             builder: (ctx) => SellerOtpVerifiedScreen(
               orderId: widget.orderId,
-              buyerName: widget.buyerName ?? 'Buyer',
-              productTitle: widget.productTitle ?? 'Product',
-              productPrice: widget.productPrice ?? 0.0,
-              productImageUrl: widget.productImageUrl,
+              buyerName: _buyerName,
+              productTitle: _productTitle,
+              productPrice: _productPrice,
+              productImageUrl: _productImageUrl,
             ),
           ),
         );
@@ -142,8 +183,10 @@ class _SellerOtpVerificationScreenState extends ConsumerState<SellerOtpVerificat
 
   @override
   Widget build(BuildContext context) {
-    final buyer = widget.buyerName ?? 'Priya Menon';
-    final meeting = widget.meetupTime ?? '10:00 AM · Anna Nagar, Chennai';
+    final buyer = _buyerName.isNotEmpty ? _buyerName : 'Buyer';
+    final meeting = _meetupLocation.isNotEmpty
+        ? (_meetupTime.isNotEmpty ? '$_meetupLocation · $_meetupTime' : _meetupLocation)
+        : (_meetupTime.isNotEmpty ? _meetupTime : 'Meetup');
 
     return Scaffold(
       backgroundColor: Colors.white,

@@ -39,6 +39,38 @@ public class CommunityService {
     }
 
     /**
+     * Get communities that the current authenticated user has active membership in.
+     */
+    public List<CommunityDto> getMyCommunities(UUID userId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required to view your communities");
+        }
+
+        List<CommunityMember> memberships = memberRepository.findByUserId(userId);
+        if (memberships.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<UUID, String> roleMap = new HashMap<>();
+        for (CommunityMember m : memberships) {
+            roleMap.put(m.getCommunityId(), m.getRole());
+        }
+
+        List<Community> communities = communityRepository.findAllById(roleMap.keySet());
+        return communities.stream()
+                .filter(Community::isActive)
+                .map(c -> {
+                    String role = roleMap.get(c.getId());
+                    if (role == null && c.getCreatedBy() != null && c.getCreatedBy().equals(userId)) {
+                        role = "ADMIN";
+                    }
+                    return mapToDto(c, role);
+                })
+                .sorted(Comparator.comparing(CommunityDto::getName))
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Get all active communities with membership and unread metrics for the user.
      */
     public List<CommunityDto> getCommunities(UUID userId, String search) {
@@ -172,7 +204,7 @@ public class CommunityService {
         boolean isAdmin = memberRepository.existsByCommunityIdAndUserIdAndRole(communityId, adminUserId, "ADMIN")
                 || (community.getCreatedBy() != null && community.getCreatedBy().equals(adminUserId));
         if (!isAdmin) {
-            throw BidlyException.unauthorized("Only community admins can add members");
+            throw BidlyException.forbidden("Only community admins can add members");
         }
 
         User targetUser = null;
@@ -219,6 +251,15 @@ public class CommunityService {
     }
 
     /**
+     * Authenticated user leaves a community.
+     * Creator is prohibited from leaving.
+     */
+    @Transactional
+    public void leaveCommunity(UUID communityId, UUID userId) {
+        removeMember(communityId, userId, userId);
+    }
+
+    /**
      * Admin removes a member, or member leaves community.
      */
     @Transactional
@@ -226,12 +267,17 @@ public class CommunityService {
         Community community = communityRepository.findById(communityId)
                 .orElseThrow(() -> BidlyException.notFound("Community"));
 
+        // Creator cannot leave or be removed from their own community
+        if (community.getCreatedBy() != null && community.getCreatedBy().equals(targetUserId)) {
+            throw BidlyException.badRequest("Community creator cannot leave their own community");
+        }
+
+        boolean isSelfLeave = requesterUserId.equals(targetUserId);
         boolean isAdmin = memberRepository.existsByCommunityIdAndUserIdAndRole(communityId, requesterUserId, "ADMIN")
                 || (community.getCreatedBy() != null && community.getCreatedBy().equals(requesterUserId));
 
-        // Allowed if requester is Admin OR user is removing themselves
-        if (!isAdmin && !requesterUserId.equals(targetUserId)) {
-            throw BidlyException.unauthorized("Only community admins can remove members");
+        if (!isSelfLeave && !isAdmin) {
+            throw BidlyException.forbidden("Only community admins can remove members");
         }
 
         memberRepository.deleteByCommunityIdAndUserId(communityId, targetUserId);
@@ -271,7 +317,7 @@ public class CommunityService {
         boolean isAdmin = memberRepository.existsByCommunityIdAndUserIdAndRole(communityId, userId, "ADMIN")
                 || (community.getCreatedBy() != null && community.getCreatedBy().equals(userId));
         if (!isAdmin) {
-            throw BidlyException.unauthorized("Only community admins can edit community details");
+            throw BidlyException.forbidden("Only community admins can edit community details");
         }
 
         if (request.getName() != null && !request.getName().isBlank()) {
@@ -312,11 +358,7 @@ public class CommunityService {
         dto.setUserRole(userRole);
         dto.setAdmin("ADMIN".equalsIgnoreCase(userRole));
         dto.setJoined(userRole != null);
-
-        // Default badge counts for seed data
-        if ("IIT Madras Campus Buy & Sell".equals(c.getName())) dto.setUnreadCount(3);
-        else if ("Photography Enthusiasts".equals(c.getName())) dto.setUnreadCount(1);
-        else dto.setUnreadCount(0);
+        dto.setUnreadCount(0);
 
         return dto;
     }

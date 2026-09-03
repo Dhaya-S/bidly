@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
+import '../models/auction_model.dart';
 import '../providers/auction_provider.dart';
 import '../providers/order_provider.dart';
 
@@ -157,7 +158,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                         radius: 22,
                         backgroundColor: const Color(0xFF004E54),
                         child: Text(
-                          sellerName.isNotEmpty ? sellerName.substring(0, 2).toUpperCase() : 'TD',
+                          sellerName.isNotEmpty ? sellerName.substring(0, sellerName.length >= 2 ? 2 : 1).toUpperCase() : '?',
                           style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                       ),
@@ -207,14 +208,69 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                       const SizedBox(height: 14),
                       _buildNextStep('1', 'Payment Moved to Escrow', 'Your reserved funds are now safely held in Escrow', isDone: true),
                       _buildNextStep('2', 'Chat with Seller', 'Coordinate dispatch or address verification directly', isCurrent: true),
-                      _buildNextStep('3', 'Seller Ships Product', 'Track package via Ekart Logistics tracking number'),
+                      _buildNextStep('3', 'Seller Ships Product', 'Track package via courier tracking number'),
                       _buildNextStep('4', 'Confirm Delivery', 'Inspect product and release escrow payout to seller', isLast: true),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                // 5. Buyer Protection Notice
+                // 5. Delivery Address Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.location_on_outlined, color: Color(0xFF004E54), size: 18),
+                              SizedBox(width: 6),
+                              Text('Delivery Address', style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                          GestureDetector(
+                            onTap: () => _showDeliveryAddressModal(context, order),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF004E54),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.edit_outlined, color: Colors.white, size: 12),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    (order != null && order.deliveryAddressLine.isNotEmpty) ? 'Change' : 'Add Address',
+                                    style: const TextStyle(fontFamily: 'Poppins', color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        (order != null && order.deliveryAddressLine.isNotEmpty)
+                            ? '${order.deliveryAddressFullName} • ${order.deliveryAddressLine}, ${order.deliveryAddressCity} - ${order.deliveryAddressPincode} (${order.deliveryAddressPhone})'
+                            : 'Add your delivery address so the seller knows where to ship via courier.',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // 6. Buyer Protection Notice
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -228,7 +284,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'BIDLY Escrow Guarantee: If the item does not match description or isn\'t delivered, you receive a 100% full refund.',
+                          'You will only be charged if you win. Your payment is secured by BIDLY Buyer Protection.',
                           style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF15803D), fontWeight: FontWeight.w500),
                         ),
                       ),
@@ -239,7 +295,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
             ),
           ),
 
-          // Sticky Bottom Actions: [ 💬 Chat with Seller ] [ 📦 Track Order ]
+          // Sticky Bottom Actions: Primary [ 💬 Chat with Seller ] + Secondary [ Back to Home ] & [ Share Win ]
           Positioned(
             bottom: 0,
             left: 0,
@@ -254,44 +310,57 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
               ),
               child: SafeArea(
                 top: false,
-                child: Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            if (details?.sellerId != null) {
-                              context.push('/chat/${details!.sellerId}?listingId=${widget.listingId}');
-                            }
-                          },
-                          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18, color: Color(0xFF004E54)),
-                          label: const Text('Chat with Seller', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF004E54))),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF004E54), width: 1.5),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          final sellerId = details?.sellerId ?? order?.sellerId;
+                          if (sellerId != null) {
+                            context.push('/chat/$sellerId?listingId=${widget.listingId}');
+                          }
+                        },
+                        icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                        label: const Text('Chat with Seller', style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w800)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004E54),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            context.push('/orders/listing/${widget.listingId}/track');
-                          },
-                          icon: const Icon(Icons.local_shipping_outlined, size: 18),
-                          label: const Text('Track Order', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF004E54),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => context.go('/'),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            child: const Text('Back to Home', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {},
+                            icon: const Icon(Icons.share_outlined, size: 16, color: Color(0xFF475569)),
+                            label: const Text('Share Win', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -339,6 +408,139 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showDeliveryAddressModal(BuildContext context, OrderModel? order) {
+    if (order == null) return;
+    final nameCtrl = TextEditingController(text: order.deliveryAddressFullName);
+    final phoneCtrl = TextEditingController(text: order.deliveryAddressPhone);
+    final addressCtrl = TextEditingController(text: order.deliveryAddressLine);
+    final cityCtrl = TextEditingController(text: order.deliveryAddressCity);
+    final pincodeCtrl = TextEditingController(text: order.deliveryAddressPincode);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delivery Address',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'The seller will use this address to courier your won item.',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Recipient Full Name',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Contact Phone Number',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: addressCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Street / Flat / Locality',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: cityCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'City',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: pincodeCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'PIN Code',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (addressCtrl.text.trim().isEmpty) return;
+                    Navigator.pop(ctx);
+                    await ref.read(orderProvider.notifier).updateDeliveryAddress(
+                          order.id,
+                          fullName: nameCtrl.text.trim(),
+                          phone: phoneCtrl.text.trim(),
+                          addressLine: addressCtrl.text.trim(),
+                          city: cityCtrl.text.trim(),
+                          pincode: pincodeCtrl.text.trim(),
+                        );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Delivery address saved to order and shared with seller!')),
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Save Address', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

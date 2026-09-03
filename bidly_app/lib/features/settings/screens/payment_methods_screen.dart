@@ -1,35 +1,50 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 
-class PaymentMethodsScreen extends StatefulWidget {
+class PaymentMethodsScreen extends ConsumerStatefulWidget {
   const PaymentMethodsScreen({super.key});
 
   @override
-  State<PaymentMethodsScreen> createState() => _PaymentMethodsScreenState();
+  ConsumerState<PaymentMethodsScreen> createState() => _PaymentMethodsScreenState();
 }
 
-class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
-  final List<Map<String, dynamic>> _methods = [
-    {
-      'type': 'UPI',
-      'detail': 'arjun.kumar@okicici',
-      'icon': Icons.phone_android_rounded,
-      'isDefault': true,
-    },
-    {
-      'type': 'Credit / Debit Card',
-      'detail': '•••• •••• •••• 4321',
-      'icon': Icons.credit_card_rounded,
-      'isDefault': false,
-    },
-    {
-      'type': 'Bank Account',
-      'detail': 'HDFC Bank — ••••8789',
-      'icon': Icons.account_balance_outlined,
-      'isDefault': false,
-    },
-  ];
+class _PaymentMethodsScreenState extends ConsumerState<PaymentMethodsScreen> {
+  late final List<Map<String, dynamic>> _methods;
+
+  @override
+  void initState() {
+    super.initState();
+    final user = ref.read(authProvider).user;
+    final upiDetail = (user?.phone != null && user!.phone.isNotEmpty)
+        ? '${user.phone}@upi'
+        : ((user?.email != null && user!.email!.isNotEmpty)
+            ? '${user.email!.split('@').first}@upi'
+            : 'user@upi');
+
+    _methods = [
+      {
+        'type': 'UPI',
+        'detail': upiDetail,
+        'icon': Icons.phone_android_rounded,
+        'isDefault': true,
+      },
+      {
+        'type': 'Credit / Debit Card',
+        'detail': '•••• •••• •••• 4321',
+        'icon': Icons.credit_card_rounded,
+        'isDefault': false,
+      },
+      {
+        'type': 'Bank Account',
+        'detail': 'Linked Bank Account — ••••8789',
+        'icon': Icons.account_balance_outlined,
+        'isDefault': false,
+      },
+    ];
+  }
 
   void _showAddPaymentModal() {
     showModalBottomSheet(
@@ -69,7 +84,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            _buildModalOption('UPI ID (VPA)', 'e.g. yourname@okhdfcbank', Icons.phone_android_rounded),
+            _buildModalOption('UPI ID (VPA)', 'e.g. yourname@upi', Icons.phone_android_rounded),
             const SizedBox(height: 10),
             _buildModalOption('Credit / Debit Card', 'Visa, Mastercard, RuPay', Icons.credit_card_rounded),
             const SizedBox(height: 10),

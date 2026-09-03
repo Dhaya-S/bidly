@@ -165,7 +165,12 @@ class _DeliveryConfirmationScreenState extends ConsumerState<DeliveryConfirmatio
                       ),
                       const Divider(height: 24, color: Color(0xFFE2E8F0)),
                       _buildSummaryRow('Order ID', '#${order.orderNumber}'),
-                      _buildSummaryRow('Delivered On', 'Today, 2:30 PM'),
+                      _buildSummaryRow(
+                        'Delivered On',
+                        order.deliveredAt != null
+                            ? DateFormat('dd MMM yyyy, h:mm a').format(DateTime.tryParse(order.deliveredAt!)?.toLocal() ?? DateTime.now())
+                            : 'Pending confirmation',
+                      ),
                       _buildSummaryRow('Delivered By', order.courierPartner),
                     ],
                   ),
@@ -194,7 +199,7 @@ class _DeliveryConfirmationScreenState extends ConsumerState<DeliveryConfirmatio
                             radius: 20,
                             backgroundColor: const Color(0xFF004E54),
                             child: Text(
-                              order.sellerName.isNotEmpty ? order.sellerName.substring(0, 2).toUpperCase() : 'TD',
+                              order.sellerName.isNotEmpty ? order.sellerName.substring(0, order.sellerName.length >= 2 ? 2 : 1).toUpperCase() : '?',
                               style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
                             ),
                           ),

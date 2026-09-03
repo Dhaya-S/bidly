@@ -87,7 +87,7 @@ class _BuyerShowOtpModalState extends ConsumerState<BuyerShowOtpModal> {
 
   void _updateTimer() {
     if (_expiresAt == null) {
-      setState(() => _timeRemaining = '23:45');
+      setState(() => _timeRemaining = 'Active');
       return;
     }
     final now = DateTime.now();

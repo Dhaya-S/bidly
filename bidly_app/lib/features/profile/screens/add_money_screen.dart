@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
 import '../providers/wallet_provider.dart';
 import 'money_added_success_screen.dart';
 
 class AddMoneyScreen extends ConsumerStatefulWidget {
-  const AddMoneyScreen({super.key});
+  final double? minTopUp;
+
+  const AddMoneyScreen({super.key, this.minTopUp});
 
   @override
   ConsumerState<AddMoneyScreen> createState() => _AddMoneyScreenState();
 }
 
 class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
-  final TextEditingController _amountController = TextEditingController(text: '500');
+  late final TextEditingController _amountController;
   int _selectedChipIndex = 0;
   String _selectedPaymentMethod = 'UPI';
 
@@ -47,6 +50,17 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.minTopUp != null && widget.minTopUp! > 0) {
+      _amountController = TextEditingController(text: widget.minTopUp!.toInt().toString());
+      _selectedChipIndex = -1;
+    } else {
+      _amountController = TextEditingController(text: '500');
+    }
+  }
+
+  @override
   void dispose() {
     _amountController.dispose();
     super.dispose();
@@ -77,9 +91,23 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
         );
 
     if (mounted && txn != null) {
-      Navigator.of(context).push(
+      final res = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
-          builder: (_) => MoneyAddedSuccessScreen(transaction: txn),
+          builder: (_) => MoneyAddedSuccessScreen(
+            transaction: txn,
+            isFromBidding: widget.minTopUp != null,
+          ),
+        ),
+      );
+      if (res == true && mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } else if (mounted) {
+      final err = ref.read(walletProvider).errorMessage ?? 'Payment failed. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err),
+          backgroundColor: AppTheme.error,
         ),
       );
     }
@@ -180,6 +208,18 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
                         letterSpacing: -0.5,
                       ),
                     ),
+                    if (widget.minTopUp != null && widget.minTopUp! > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Min top-up: ₹${NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 0).format(widget.minTopUp).trim()}',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFFCA5A5),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

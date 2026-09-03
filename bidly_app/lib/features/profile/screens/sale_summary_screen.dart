@@ -81,9 +81,9 @@ class _SaleSummaryScreenState extends ConsumerState<SaleSummaryScreen> {
         ? (double.tryParse(_summary!['finalPrice'].toString()) ?? 0.0)
         : 0.0;
     final buyer = _summary?['buyerName']?.toString() ?? 'Buyer';
-    final saleDate = _summary?['saleDateFormatted']?.toString() ?? 'Recent';
-    final payoutStatus = _summary?['payoutStatus']?.toString() ?? 'Processing';
-    final listingId = _summary?['listingCustomId']?.toString() ?? '#LST-${widget.orderId.substring(0, widget.orderId.length > 8 ? 8 : widget.orderId.length).toUpperCase()}';
+    final saleDate = _summary?['saleDateFormatted']?.toString() ?? '';
+    final payoutStatus = _summary?['payoutStatus']?.toString() ?? '';
+    final listingId = _summary?['listingCustomId']?.toString() ?? _summary?['orderNumber']?.toString() ?? '';
     final imageUrl = _summary?['listingImageUrl']?.toString();
 
     return Scaffold(
@@ -146,7 +146,7 @@ class _SaleSummaryScreenState extends ConsumerState<SaleSummaryScreen> {
                                     fit: BoxFit.cover,
                                   )
                                 : const Center(
-                                    child: Icon(Icons.laptop_chromebook_rounded, size: 64, color: Color(0xFF004E54)),
+                                    child: Icon(Icons.image_outlined, size: 64, color: Color(0xFF004E54)),
                                   ),
                           ),
                         ),

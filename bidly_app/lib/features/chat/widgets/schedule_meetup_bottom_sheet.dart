@@ -41,7 +41,7 @@ class ScheduleMeetupBottomSheet extends ConsumerStatefulWidget {
 class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottomSheet> {
   late DateTime _currentMonth;
   late DateTime _selectedDate;
-  final TextEditingController _timeController = TextEditingController(text: '10:00 AM');
+  late final TextEditingController _timeController;
   late final TextEditingController _locationController;
   bool _isSubmitting = false;
 
@@ -51,6 +51,8 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
     final now = DateTime.now();
     _currentMonth = DateTime(now.year, now.month, 1);
     _selectedDate = now.add(const Duration(days: 1));
+    final nextHour = now.add(const Duration(hours: 1));
+    _timeController = TextEditingController(text: DateFormat('hh:00 a').format(nextHour));
     _locationController = TextEditingController(
       text: widget.initialLocation ?? '',
     );
@@ -355,7 +357,7 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
             TextField(
               controller: _locationController,
               decoration: InputDecoration(
-                hintText: 'T.Nagar, Chennai / Suggested by seller',
+                hintText: 'Enter agreed meetup location (e.g. Mall, Metro Station)',
                 prefixIcon: const Icon(Icons.location_on_outlined, size: 20, color: Color(0xFF004E54)),
                 filled: true,
                 fillColor: const Color(0xFFF9FBFA),

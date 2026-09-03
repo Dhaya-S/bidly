@@ -98,7 +98,7 @@ public class Order extends BaseEntity {
     private PaymentStatus paymentStatus = PaymentStatus.IN_ESCROW;
 
     @Column(name = "courier_partner", length = 100)
-    private String courierPartner = "Ekart Logistics";
+    private String courierPartner;
 
     @Column(name = "tracking_number", length = 100)
     private String trackingNumber;

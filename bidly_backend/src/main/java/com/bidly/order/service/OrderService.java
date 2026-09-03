@@ -10,6 +10,7 @@ import com.bidly.order.entity.Order;
 import com.bidly.order.entity.OrderTrackingEvent;
 import com.bidly.order.repository.OrderRepository;
 import com.bidly.order.repository.OrderTrackingEventRepository;
+import com.bidly.user.entity.User;
 import com.bidly.wallet.service.WalletService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -116,19 +117,14 @@ public class OrderService {
             trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.ORDER_CONFIRMED, "Offer Accepted & Meetup Scheduled", "In-person meetup confirmed at " + saved.getMeetupLocation(), Instant.now()));
             return saved;
         } else {
-            order.setCourierPartner("Ekart Logistics");
-            order.setTrackingNumber("EKRT202608" + String.format("%04d", new Random().nextInt(9000) + 1000) + "IN");
-            order.setEstimatedDeliveryDate(Instant.now().plus(Duration.ofDays(2)));
-            order.setStatus(Order.OrderStatus.SHIPPED);
+            order.setDeliveryType(Order.DeliveryType.COURIER);
+            order.setCourierPartner(null);
+            order.setTrackingNumber(null);
+            order.setEstimatedDeliveryDate(null);
+            order.setStatus(Order.OrderStatus.ORDER_CONFIRMED);
 
             Order saved = orderRepository.save(order);
-            Instant t0 = Instant.now().minus(Duration.ofHours(12));
-            Instant t1 = t0.plus(Duration.ofHours(2));
-            Instant t2 = t1.plus(Duration.ofHours(6));
-
-            trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.ORDER_CONFIRMED, "Offer Accepted", "Direct Sale offer agreed for Rs. " + agreedAmount, t0));
-            trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.SELLER_CONFIRMED, "Seller Confirmed", "Seller accepted & packed the item", t1));
-            trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.SHIPPED, "Shipped", "Handed over to Ekart Logistics", t2));
+            trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.ORDER_CONFIRMED, "Offer Accepted", "Direct Sale offer agreed for Rs. " + agreedAmount, Instant.now()));
             return saved;
         }
     }
@@ -524,16 +520,108 @@ public class OrderService {
     public OrderSummaryDto getOrderDetails(UUID orderId, UUID currentUserId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+        if (!order.getBuyer().getId().equals(currentUserId) && !order.getSeller().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Unauthorized: You do not have access to this order's details");
+        }
         return mapToSummaryDto(order);
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public OrderSummaryDto getOrCreateOrderByListing(UUID listingId, UUID currentUserId) {
         Optional<Order> existing = orderRepository.findFirstByListingIdOrderByCreatedAtDesc(listingId);
         if (existing.isPresent()) {
-            return mapToSummaryDto(existing.get());
+            Order order = existing.get();
+            if (!order.getBuyer().getId().equals(currentUserId) && !order.getSeller().getId().equals(currentUserId)) {
+                throw BidlyException.forbidden("Unauthorized: You do not have access to this order's details");
+            }
+            return mapToSummaryDto(order);
         }
         throw BidlyException.notFound("No active order found for listing: " + listingId);
+    }
+
+    /**
+     * Buyer attaches or updates their delivery address on the Order.
+     * Concurrency-safe, authorization-verified, broadcasts in-chat address card to seller.
+     */
+    @Transactional
+    public OrderSummaryDto updateDeliveryAddress(UUID orderId, UUID currentUserId, com.bidly.order.dto.UpdateOrderAddressRequest req) {
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId)
+                .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+
+        if (!order.getBuyer().getId().equals(currentUserId)) {
+            throw BidlyException.forbidden("Unauthorized: Only the buyer can update delivery address for this order");
+        }
+
+        if (order.getStatus() == Order.OrderStatus.DELIVERED || order.getStatus() == Order.OrderStatus.CANCELLED) {
+            throw BidlyException.badRequest("Cannot update address for order with status: " + order.getStatus());
+        }
+
+        com.bidly.address.entity.DeliveryAddress address = null;
+        if (req != null && req.getAddressId() != null) {
+            address = addressRepository.findById(req.getAddressId())
+                    .orElseThrow(() -> BidlyException.notFound("Delivery address not found: " + req.getAddressId()));
+            if (!address.getUser().getId().equals(currentUserId)) {
+                throw BidlyException.forbidden("Unauthorized: You do not own this delivery address");
+            }
+        } else if (req != null && req.getAddressLine() != null && !req.getAddressLine().trim().isEmpty()) {
+            User buyer = order.getBuyer();
+            address = new com.bidly.address.entity.DeliveryAddress();
+            address.setUser(buyer);
+            address.setFullName(req.getFullName() != null && !req.getFullName().trim().isEmpty() ? req.getFullName().trim() : buyer.getName());
+            address.setPhone(req.getPhone() != null && !req.getPhone().trim().isEmpty() ? req.getPhone().trim() : (buyer.getPhone() != null ? buyer.getPhone() : ""));
+            address.setAddressLine(req.getAddressLine().trim());
+            address.setCity(req.getCity() != null ? req.getCity().trim() : "");
+            address.setPincode(req.getPincode() != null ? req.getPincode().trim() : "");
+            address.setDefault(true);
+            address = addressRepository.save(address);
+        }
+
+        if (address != null) {
+            order.setDeliveryAddress(address);
+            order.setDeliveryType(Order.DeliveryType.COURIER);
+            Order saved = orderRepository.save(order);
+
+            // Post real-time Delivery Address card to pairwise chat room
+            final com.bidly.address.entity.DeliveryAddress finalAddress = address;
+            chatRoomRepository.findByListingIdAndBuyerId(saved.getListing().getId(), saved.getBuyer().getId()).ifPresent(room -> {
+                try {
+                    com.bidly.chat.entity.ChatMessage msg = new com.bidly.chat.entity.ChatMessage();
+                    msg.setRoomId(room.getId());
+                    msg.setSenderId(saved.getBuyer().getId());
+                    msg.setContent("Delivery Address: " + finalAddress.getFullName() + ", " + finalAddress.getAddressLine() + ", " + finalAddress.getCity() + " - " + finalAddress.getPincode() + " (Phone: " + finalAddress.getPhone() + ")");
+                    msg.setType(com.bidly.chat.entity.ChatMessage.MessageType.ORDER_UPDATE);
+
+                    Map<String, Object> meta = new HashMap<>();
+                    meta.put("eventType", "DELIVERY_ADDRESS_SHARED");
+                    meta.put("orderId", saved.getId().toString());
+                    meta.put("recipientName", finalAddress.getFullName());
+                    meta.put("phone", finalAddress.getPhone());
+                    meta.put("addressLine", finalAddress.getAddressLine());
+                    meta.put("city", finalAddress.getCity());
+                    meta.put("pincode", finalAddress.getPincode());
+
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    msg.setMetadata(mapper.writeValueAsString(meta));
+                    chatMessageRepository.save(msg);
+
+                    messagingTemplate.convertAndSend("/topic/chat/" + room.getId(), msg);
+                } catch (Exception e) {
+                    log.warn("[DELIVERY_ADDRESS_CHAT] Failed to send chat message: {}", e.getMessage());
+                }
+            });
+
+            // Notify seller via STOMP notifications
+            Map<String, Object> wsEvent = new HashMap<>();
+            wsEvent.put("eventType", "DELIVERY_ADDRESS_SHARED");
+            wsEvent.put("orderId", saved.getId().toString());
+            wsEvent.put("listingId", saved.getListing().getId().toString());
+            wsEvent.put("recipientName", finalAddress.getFullName());
+            messagingTemplate.convertAndSend("/topic/users/" + saved.getSeller().getId() + "/notifications", wsEvent);
+
+            return mapToSummaryDto(saved);
+        }
+
+        return mapToSummaryDto(order);
     }
 
     /**
@@ -541,7 +629,7 @@ public class OrderService {
      */
     @Transactional
     public OrderSummaryDto confirmDelivery(UUID orderId, UUID currentUserId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId)
                 .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
 
         if (!order.getBuyer().getId().equals(currentUserId)) {

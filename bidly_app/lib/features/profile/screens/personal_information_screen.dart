@@ -27,9 +27,10 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
   void initState() {
     super.initState();
     final user = ref.read(authProvider).user;
-    _nameController = TextEditingController(text: user?.name ?? 'Arjun Kumar');
-    _emailController = TextEditingController(text: user?.email ?? 'arjun.kumar@gmail.com');
-    _phoneController = TextEditingController(text: user?.phone != null && user!.phone.isNotEmpty ? '+91 ${user.phone}' : '+91 98765 43210');
+    _nameController = TextEditingController(text: user?.name ?? '');
+    _emailController = TextEditingController(text: user?.email ?? '');
+    _phoneController = TextEditingController(
+        text: user?.phone != null && user!.phone.isNotEmpty ? '+91 ${user.phone}' : '');
     _addressController = TextEditingController(text: user?.address ?? '');
     _sellerType = user?.sellerType ?? 'INDIVIDUAL';
     _selectedAvatarPath = user?.avatarUrl;
@@ -198,7 +199,7 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
                   validator: (v) => v == null || v.trim().isEmpty ? 'Please enter your name' : null,
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
                   decoration: const InputDecoration(
-                    hintText: 'Arjun Kumar',
+                    hintText: 'Enter your full name',
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -211,7 +212,7 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
                   validator: (v) => v == null || v.trim().isEmpty ? 'Please enter phone number' : null,
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
                   decoration: const InputDecoration(
-                    hintText: '+91 98765 43210',
+                    hintText: '+91 XXXXX XXXXX',
                   ),
                 ),
                 const SizedBox(height: 18),

@@ -60,23 +60,39 @@ class OrderModel {
         .map((e) => OrderTimelineEvent.fromJson(e as Map<String, dynamic>))
         .toList();
 
+    DateTime? parsedDate;
+    final dateRaw = json['deliveredAt'] ?? json['createdAt'];
+    if (dateRaw != null) {
+      parsedDate = DateTime.tryParse(dateRaw.toString());
+    }
+
+    final dateStr = parsedDate != null
+        ? '${parsedDate.day} ${_monthName(parsedDate.month)} ${parsedDate.year}'
+        : '';
+
     return OrderModel(
       id: json['id']?.toString() ?? '',
-      orderNumber: json['orderNumber']?.toString() ?? 'ORD-2026-00841',
-      title: json['productTitle']?.toString() ?? 'Item',
+      orderNumber: json['orderNumber']?.toString() ?? '',
+      title: json['productTitle']?.toString() ?? 'Product',
       price: (json['wonAmount'] is num)
           ? (json['wonAmount'] as num).toDouble()
           : (double.tryParse(json['wonAmount']?.toString() ?? '0') ?? 0.0),
-      date: json['deliveredAt'] != null ? '3 Jun 2026' : 'Recently',
-      sellerName: json['sellerName']?.toString() ?? 'Home Essentials',
+      date: dateStr,
+      sellerName: json['sellerName']?.toString() ?? 'Seller',
       sellerRating: (json['sellerRating'] is num)
           ? (json['sellerRating'] as num).toDouble()
-          : 4.7,
+          : 0.0,
       imageUrl: json['primaryImageUrl']?.toString(),
-      status: json['status'] == 'DELIVERED' ? 'Delivered' : (json['status']?.toString() ?? 'Delivered'),
+      status: json['status'] == 'DELIVERED' ? 'Delivered' : (json['status']?.toString() ?? 'Pending'),
       source: json['orderSource']?.toString() ?? 'AUCTION',
       timeline: timelineEvents,
     );
+  }
+
+  static String _monthName(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (month >= 1 && month <= 12) return months[month - 1];
+    return '';
   }
 }
 

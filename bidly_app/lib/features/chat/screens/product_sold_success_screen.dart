@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../profile/providers/my_listings_provider.dart';
 
-class ProductSoldSuccessScreen extends ConsumerWidget {
+class ProductSoldSuccessScreen extends ConsumerStatefulWidget {
   final String orderId;
   final String productTitle;
   final String buyerName;
@@ -22,6 +23,49 @@ class ProductSoldSuccessScreen extends ConsumerWidget {
     required this.transactionId,
     required this.dateFormatted,
   });
+
+  @override
+  ConsumerState<ProductSoldSuccessScreen> createState() => _ProductSoldSuccessScreenState();
+}
+
+class _ProductSoldSuccessScreenState extends ConsumerState<ProductSoldSuccessScreen> {
+  late String _productTitle;
+  late String _buyerName;
+  late double _productPrice;
+  late String _transactionId;
+  late String _dateFormatted;
+
+  @override
+  void initState() {
+    super.initState();
+    _productTitle = widget.productTitle;
+    _buyerName = widget.buyerName;
+    _productPrice = widget.productPrice;
+    _transactionId = widget.transactionId;
+    _dateFormatted = widget.dateFormatted;
+    if (_transactionId.isEmpty || _productTitle.isEmpty || _buyerName.isEmpty) {
+      _fetchSummary();
+    }
+  }
+
+  Future<void> _fetchSummary() async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.get('/orders/${widget.orderId}/sale-summary');
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final data = Map<String, dynamic>.from(res.data['data'] as Map);
+        if (mounted) {
+          setState(() {
+            _productTitle = data['productTitle']?.toString() ?? _productTitle;
+            _buyerName = data['buyerName']?.toString() ?? _buyerName;
+            _productPrice = (data['productPrice'] is num) ? (data['productPrice'] as num).toDouble() : _productPrice;
+            _transactionId = data['transactionId']?.toString() ?? data['orderNumber']?.toString() ?? _transactionId;
+            _dateFormatted = data['saleDateFormatted']?.toString() ?? _dateFormatted;
+          });
+        }
+      }
+    } catch (_) {}
+  }
 
   Widget _buildDetailRow(String label, String value, {bool isHighlighted = false}) {
     return Padding(
@@ -52,7 +96,7 @@ class ProductSoldSuccessScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -104,7 +148,7 @@ class ProductSoldSuccessScreen extends ConsumerWidget {
 
               // Subtitle
               Text(
-                'Congratulations! Your $productTitle has been sold to $buyerName for ₹${productPrice.toStringAsFixed(0)}.',
+                'Congratulations! Your ${_productTitle.isNotEmpty ? _productTitle : "item"} has been sold to ${_buyerName.isNotEmpty ? _buyerName : "the buyer"} for ₹${_productPrice.toStringAsFixed(0)}.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: 'Poppins',
@@ -137,10 +181,10 @@ class ProductSoldSuccessScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _buildDetailRow('Transaction ID', transactionId),
-                    _buildDetailRow('Buyer', buyerName),
-                    _buildDetailRow('Amount', '₹${productPrice.toStringAsFixed(0)}', isHighlighted: true),
-                    _buildDetailRow('Date', dateFormatted),
+                    _buildDetailRow('Transaction ID', _transactionId),
+                    _buildDetailRow('Buyer', _buyerName),
+                    _buildDetailRow('Amount', '₹${_productPrice.toStringAsFixed(0)}', isHighlighted: true),
+                    _buildDetailRow('Date', _dateFormatted),
                   ],
                 ),
               ),

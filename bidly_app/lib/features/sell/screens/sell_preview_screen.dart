@@ -275,8 +275,8 @@ class SellPreviewScreen extends ConsumerWidget {
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          Expanded(child: _buildSpecItem('Bid ends', sellState.auctionEndDate ?? '2026-12-20')),
-                          Expanded(child: _buildSpecItem('End time', sellState.auctionEndTime ?? '02:00 PM')),
+                          Expanded(child: _buildSpecItem('Bid ends', sellState.auctionEndDate ?? 'TBD')),
+                          Expanded(child: _buildSpecItem('End time', sellState.auctionEndTime ?? 'TBD')),
                         ],
                       ),
                       const SizedBox(height: 14),

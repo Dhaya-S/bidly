@@ -44,6 +44,15 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(dto));
     }
 
+    @PutMapping("/{orderId}/delivery-address")
+    public ResponseEntity<ApiResponse<OrderSummaryDto>> updateDeliveryAddress(
+            @PathVariable UUID orderId,
+            @AuthenticationPrincipal UUID currentUserId,
+            @RequestBody com.bidly.order.dto.UpdateOrderAddressRequest request) {
+        OrderSummaryDto dto = orderService.updateDeliveryAddress(orderId, currentUserId, request);
+        return ResponseEntity.ok(ApiResponse.success("Delivery address updated successfully", dto));
+    }
+
     @PostMapping("/{orderId}/confirm-delivery")
     public ResponseEntity<ApiResponse<OrderSummaryDto>> confirmDelivery(
             @PathVariable UUID orderId,

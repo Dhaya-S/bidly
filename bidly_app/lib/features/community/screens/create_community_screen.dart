@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../setup/providers/setup_provider.dart';
 import '../providers/community_provider.dart';
 
@@ -19,7 +20,7 @@ class _CreateCommunityScreenState extends ConsumerState<CreateCommunityScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _descController = TextEditingController();
-  final TextEditingController _locationController = TextEditingController(text: 'Velachery, Chennai, Tamil Nadu');
+  final TextEditingController _locationController = TextEditingController();
   final TextEditingController _rulesController = TextEditingController();
 
   String _selectedCategory = 'Electronics';
@@ -88,38 +89,58 @@ class _CreateCommunityScreenState extends ConsumerState<CreateCommunityScreen> {
           final placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
           if (placemarks.isNotEmpty) {
             final p = placemarks.first;
-            final locality = p.subLocality?.isNotEmpty == true ? p.subLocality : (p.locality ?? 'Chennai');
-            final city = p.locality?.isNotEmpty == true ? p.locality : (p.administrativeArea ?? 'Tamil Nadu');
-            final fullAddress = '$locality, $city, ${p.administrativeArea ?? 'TN'}';
+            final locality = p.subLocality?.isNotEmpty == true ? p.subLocality : (p.locality ?? '');
+            final city = p.locality?.isNotEmpty == true ? p.locality : (p.administrativeArea ?? '');
+            final fullAddress = [locality, city, p.administrativeArea]
+                .where((s) => s != null && s.toString().isNotEmpty)
+                .join(', ');
 
             setState(() {
-              _locationController.text = fullAddress;
+              _locationController.text = fullAddress.isNotEmpty ? fullAddress : '${position.latitude}, ${position.longitude}';
             });
           }
         } catch (_) {
-          setState(() {
-            _locationController.text = 'Perungudi, Chennai, Tamil Nadu';
-          });
+          final user = ref.read(authProvider).user;
+          if (user?.address != null && user!.address!.isNotEmpty) {
+            setState(() {
+              _locationController.text = user.address!;
+            });
+          }
         }
       } else {
-        setState(() {
-          _locationController.text = 'Velachery, Chennai, Tamil Nadu';
-        });
+        final user = ref.read(authProvider).user;
+        if (user?.address != null && user!.address!.isNotEmpty) {
+          setState(() {
+            _locationController.text = user.address!;
+          });
+        }
       }
     } catch (_) {
-      setState(() {
-        _locationController.text = 'Velachery, Chennai, Tamil Nadu';
-      });
+      final user = ref.read(authProvider).user;
+      if (user?.address != null && user!.address!.isNotEmpty) {
+        setState(() {
+          _locationController.text = user.address!;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _isDetectingLocation = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Location updated: ${_locationController.text}'),
-            backgroundColor: const Color(0xFF004E54),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        if (_locationController.text.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Location updated: ${_locationController.text}'),
+              backgroundColor: const Color(0xFF004E54),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not detect location. Please type your location.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
     }
   }
@@ -490,7 +511,7 @@ class _CreateCommunityScreenState extends ConsumerState<CreateCommunityScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Current: ${_locationController.text}',
+                                _locationController.text.isNotEmpty ? 'Current: ${_locationController.text}' : 'No location set (tap to pick)',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontFamily: 'Poppins',

@@ -215,7 +215,7 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                order.meetupLocation ?? 'Agreed Public Meeting Spot',
+                                order.meetupLocation ?? 'Location to be coordinated',
                                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E232A)),
                               ),
                             ),
@@ -223,8 +223,8 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // OTP Section
-                        if (order.isSeller && !isDelivered) ...[
+                        // OTP Section (Shown to Buyer to share with Seller)
+                        if (!order.isSeller && !isDelivered) ...[
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(14),
@@ -251,14 +251,14 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Show this OTP to the buyer upon handover to receive instant payment release.',
+                                  'Share this OTP with the seller only after inspecting and receiving the item.',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Color(0xFF64748B)),
                                 ),
                               ],
                             ),
                           ),
-                        ] else if (!order.isSeller && !isDelivered) ...[
+                        ] else if (order.isSeller && !isDelivered) ...[
                           Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -362,7 +362,9 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                               ],
                             ),
                             Text(
-                              order.trackingNumber ?? 'EKRT2026081234IN',
+                              order.trackingNumber != null && order.trackingNumber!.isNotEmpty
+                                  ? order.trackingNumber!
+                                  : 'Tracking pending',
                               style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
                             ),
                           ],
@@ -401,14 +403,14 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                               e.formattedTime,
                               isCompleted: e.isCompleted,
                             ))
-                      else ...[
-                        _buildTimelineStep('Auction Won', 'You won the auction with the highest bid', 'Jun 14, 2:30 PM', isCompleted: true),
-                        _buildTimelineStep('Seller Confirmed', 'Seller verified and accepted order', 'Jun 14, 4:15 PM', isCompleted: true),
-                        _buildTimelineStep('Packed', 'Item packed securely by seller', 'Jun 15, 10:00 AM', isCompleted: true),
-                        _buildTimelineStep('Shipped', 'Handed over to ${order.courierPartner}', 'Jun 15, 2:30 PM', isCompleted: true, isLast: !isDelivered),
-                        if (isDelivered)
-                          _buildTimelineStep('Delivered', 'Item delivered to recipient', 'Today, 11:30 AM', isCompleted: true, isLast: true),
-                      ],
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            'Tracking updates will appear as your shipment progresses.',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -462,7 +464,7 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                         radius: 20,
                         backgroundColor: const Color(0xFF004E54),
                         child: Text(
-                          order.sellerName.isNotEmpty ? order.sellerName.substring(0, 2).toUpperCase() : 'TD',
+                          order.sellerName.isNotEmpty ? order.sellerName.substring(0, order.sellerName.length >= 2 ? 2 : 1).toUpperCase() : '?',
                           style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                       ),

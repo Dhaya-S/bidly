@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../models/auction_model.dart';
 import 'choose_delivery_method_bottom_sheet.dart';
 
-class AuctionWinnerDialog extends StatelessWidget {
+class AuctionWinnerDialog extends ConsumerWidget {
   final AuctionWinnerModel winner;
   final String listingId;
 
@@ -22,8 +25,11 @@ class AuctionWinnerDialog extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+    final currentUserId = ref.watch(authProvider).user?.id;
+    final isWinner = (winner.winnerId != null && winner.winnerId == currentUserId) ||
+        winner.winnerName.toLowerCase() == 'you';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -74,7 +80,7 @@ class AuctionWinnerDialog extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${winner.winnerName}\nWon the Auction',
+              isWinner ? 'Congratulations!\nYou Won the Auction' : '${winner.winnerName}\nWon the Auction',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Poppins',
@@ -163,18 +169,22 @@ class AuctionWinnerDialog extends StatelessWidget {
             ),
             const SizedBox(height: 18),
 
-            // Ship package / Choose Delivery Method Button
+            // Button: [ Continue to Order Status ] for Buyer, [ Ship package ] for Seller
             SizedBox(
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.of(context).pop(); // Dismiss Winner Dialog
-                  ChooseDeliveryMethodBottomSheet.show(
-                    context,
-                    winner: winner,
-                    listingId: listingId,
-                  );
+                  if (isWinner) {
+                    context.push('/auctions/$listingId/won');
+                  } else {
+                    ChooseDeliveryMethodBottomSheet.show(
+                      context,
+                      winner: winner,
+                      listingId: listingId,
+                    );
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF14B8A6),
@@ -182,14 +192,16 @@ class AuctionWinnerDialog extends StatelessWidget {
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.local_shipping_outlined, size: 20),
-                    SizedBox(width: 8),
+                    if (!isWinner) ...[
+                      const Icon(Icons.local_shipping_outlined, size: 20),
+                      const SizedBox(width: 8),
+                    ],
                     Text(
-                      'Ship package',
-                      style: TextStyle(
+                      isWinner ? 'Continue to Order Status' : 'Ship package',
+                      style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 15,
                         fontWeight: FontWeight.w700,

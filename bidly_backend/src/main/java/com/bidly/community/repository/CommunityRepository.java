@@ -16,4 +16,5 @@ public interface CommunityRepository extends JpaRepository<Community, UUID> {
     Page<Community> findByActiveTrue(Pageable pageable);
     List<Community> findByActiveTrueOrderByCreatedAtDesc();
     List<Community> findByCityIgnoreCaseAndActiveTrue(String city);
+    List<Community> findByCreatedByAndActiveTrue(UUID createdBy);
 }

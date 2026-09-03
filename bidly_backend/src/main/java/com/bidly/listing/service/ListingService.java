@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.bidly.community.entity.CommunityPost;
+import com.bidly.community.repository.CommunityMemberRepository;
 import com.bidly.community.repository.CommunityPostRepository;
 import com.bidly.community.repository.CommunityRepository;
 import com.bidly.media.service.MediaService;
@@ -44,6 +45,7 @@ public class ListingService {
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final CommunityRepository communityRepository;
+    private final CommunityMemberRepository memberRepository;
     private final CommunityPostRepository communityPostRepository;
     private final MediaService mediaService;
     private final com.bidly.media.repository.MediaJobRepository mediaJobRepository;
@@ -55,6 +57,7 @@ public class ListingService {
             CategoryRepository categoryRepository,
             UserRepository userRepository,
             CommunityRepository communityRepository,
+            CommunityMemberRepository memberRepository,
             CommunityPostRepository communityPostRepository,
             MediaService mediaService,
             com.bidly.media.repository.MediaJobRepository mediaJobRepository) {
@@ -64,6 +67,7 @@ public class ListingService {
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
         this.communityRepository = communityRepository;
+        this.memberRepository = memberRepository;
         this.communityPostRepository = communityPostRepository;
         this.mediaService = mediaService;
         this.mediaJobRepository = mediaJobRepository;
@@ -90,33 +94,17 @@ public class ListingService {
             seller = userRepository.findFirstByNameIgnoreCase(request.getSellerName().trim()).orElse(null);
         }
         if (seller == null) {
-            final String sellerName = (request.getSellerName() != null && !request.getSellerName().isBlank())
-                    ? request.getSellerName().trim()
-                    : "Verified Seller";
-            final String sellerPhone = (request.getSellerPhone() != null && !request.getSellerPhone().isBlank())
-                    ? request.getSellerPhone().trim()
-                    : "9876543210";
-            seller = userRepository.findAll().stream()
-                    .filter(u -> sellerName.equalsIgnoreCase(u.getName()))
-                    .findFirst()
-                    .orElseGet(() -> {
-                        User u = new User();
-                        u.setName(sellerName);
-                        u.setPhone(sellerPhone);
-                        u.setActive(true);
-                        u.setIdentityVerified(true);
-                        u.setTrustScore(95);
-                        return userRepository.save(u);
-                    });
+            throw com.bidly.common.exception.BidlyException.unauthorized("A valid registered seller is required to create a listing");
         }
 
         // Find or create category
-        Category category = categoryRepository.findFirstByNameIgnoreCase(request.getCategory())
-                .orElseGet(() -> categoryRepository.save(new Category(request.getCategory(), null, 1, null, true)));
+        String catName = (request.getCategory() != null && !request.getCategory().isBlank()) ? request.getCategory().trim() : "Other";
+        Category category = categoryRepository.findFirstByNameIgnoreCase(catName)
+                .orElseGet(() -> categoryRepository.save(new Category(catName, null, 1, null, true)));
 
         Listing listing = new Listing();
-        listing.setTitle(request.getTitle().trim());
-        listing.setDescription(request.getDescription().trim());
+        listing.setTitle(request.getTitle() != null ? request.getTitle().trim() : "");
+        listing.setDescription(request.getDescription() != null ? request.getDescription().trim() : "");
         listing.setPrice(request.getPrice());
         listing.setCategory(category);
         listing.setSubcategory(request.getSubcategory());
@@ -141,9 +129,23 @@ public class ListingService {
         listing.setPurchaseDate(request.getPurchaseDate());
         listing.setHasDamage(request.isHasDamage());
         listing.setDamageDetails(request.getDamageDetails());
-        listing.setSellingScope(request.getSellingScope() != null ? request.getSellingScope() : "GLOBAL");
-        listing.setCommunityId(request.getCommunityId());
-        listing.setCommunityName(request.getCommunityName());
+        if (request.getCommunityId() != null) {
+            com.bidly.community.entity.Community comm = communityRepository.findById(request.getCommunityId())
+                    .orElseThrow(() -> BidlyException.notFound("Community"));
+            boolean isCreator = comm.getCreatedBy() != null && comm.getCreatedBy().equals(seller.getId());
+            boolean isMember = isCreator || memberRepository.existsByCommunityIdAndUserId(comm.getId(), seller.getId());
+            boolean isAdmin = isCreator || memberRepository.existsByCommunityIdAndUserIdAndRole(comm.getId(), seller.getId(), "ADMIN");
+            if (!isMember || (!isCreator && !isAdmin)) {
+                throw BidlyException.forbidden("Only the community creator can list products in this community");
+            }
+            listing.setSellingScope("COMMUNITY");
+            listing.setCommunityId(comm.getId());
+            listing.setCommunityName(comm.getName());
+        } else {
+            listing.setSellingScope(request.getSellingScope() != null ? request.getSellingScope() : "GLOBAL");
+            listing.setCommunityId(null);
+            listing.setCommunityName(null);
+        }
         listing.setTargetRadiusKm(request.getTargetRadiusKm());
 
         // Selling Method & Bidding Details
@@ -297,6 +299,8 @@ public class ListingService {
             }
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("status"), Listing.ListingStatus.ACTIVE));
+            // Community-scoped listings are strictly private to their community and excluded from global search
+            predicates.add(cb.isNull(root.get("communityId")));
 
             if (keyword != null && !keyword.trim().isEmpty()) {
                 String pattern = "%" + keyword.trim().toLowerCase() + "%";
@@ -741,6 +745,17 @@ public class ListingService {
     public ListingSummaryDto getListingById(UUID id, UUID currentUserId) {
         Listing listing = listingRepository.findById(id)
                 .orElseThrow(() -> BidlyException.notFound("Listing not found: " + id));
+
+        if (listing.getCommunityId() != null) {
+            if (currentUserId == null) {
+                throw BidlyException.unauthorized("Authentication required to view this community listing");
+            }
+            boolean isMember = memberRepository.existsByCommunityIdAndUserId(listing.getCommunityId(), currentUserId);
+            if (!isMember) {
+                throw BidlyException.forbidden("You must be an active member of this community to view this listing");
+            }
+        }
+
         return mapToSummaryDto(listing, currentUserId);
     }
 

@@ -218,14 +218,16 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
   }
 
   void _showWalletValidationSheet(BuildContext context, double balance, double bidAmt, bool sufficient) {
+    bool isPlacing = false;
+    String? sheetError;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isDismissible: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) {
-          bool isPlacing = false;
-          String? sheetError;
+          final shortAmount = bidAmt > balance ? (bidAmt - balance) : 0.0;
 
           return Container(
             padding: const EdgeInsets.all(22),
@@ -233,68 +235,69 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            child: StatefulBuilder(
-              builder: (ctx, setSheetState) => Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Wallet Validation',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text('Ready to place your bid', style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF64748B))),
-                  const SizedBox(height: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 16),
+                const Text(
+                  'Wallet Validation',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                ),
+                const SizedBox(height: 4),
+                const Text('Ready to place your bid', style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF64748B))),
+                const SizedBox(height: 20),
 
-                  // Balance vs Bid Card
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Wallet Balance', style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 2),
-                            Text(
-                              currencyFormatter.format(balance),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF10B981)),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text('Bid Amount', style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 2),
-                            Text(
-                              currencyFormatter.format(bidAmt),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                // Balance vs Bid Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
-                  const SizedBox(height: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Wallet Balance', style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 2),
+                          Text(
+                            currencyFormatter.format(balance),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF10B981)),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text('Bid Amount', style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 2),
+                          Text(
+                            currencyFormatter.format(bidAmt),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
 
-                  // Status Pill
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: sufficient ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                // Status Pill
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: sufficient ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                     child: Text(
-                      sufficient ? 'Your wallet has enough funds to place this bid' : 'Insufficient funds in wallet to place this bid',
+                      sufficient
+                          ? 'Your wallet has enough funds to place this bid'
+                          : 'Short by ${currencyFormatter.format(shortAmount)} - Please top up to continue',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontFamily: 'Poppins',
@@ -335,8 +338,22 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: (sufficient && !isPlacing)
-                          ? () async {
+                      onPressed: isPlacing
+                          ? null
+                          : () async {
+                              if (!sufficient) {
+                                Navigator.of(ctx).pop();
+                                await context.push('/wallet/add-money?minTopUp=${shortAmount.toInt()}');
+                                if (!mounted) return;
+                                await ref.read(auctionProvider.notifier).fetchWallet();
+                                final wallet = ref.read(auctionProvider).wallet;
+                                final newBal = wallet?.availableBalance ?? wallet?.balance ?? 0.0;
+                                if (context.mounted) {
+                                  _showWalletValidationSheet(context, newBal, bidAmt, newBal >= bidAmt);
+                                }
+                                return;
+                              }
+
                               setSheetState(() {
                                 isPlacing = true;
                                 sheetError = null;
@@ -361,10 +378,9 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                                   sheetError = 'Network error. Please try again.';
                                 });
                               }
-                            }
-                          : null,
+                            },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF004E54),
+                        backgroundColor: sufficient ? const Color(0xFF004E54) : const Color(0xFFDC2626),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
@@ -374,7 +390,12 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                               width: 22,
                               child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                             )
-                          : Text('Continue Bid • ${currencyFormatter.format(bidAmt)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                          : Text(
+                              sufficient
+                                  ? 'Continue Bid • ${currencyFormatter.format(bidAmt)}'
+                                  : 'Top Up Wallet',
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -384,12 +405,11 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                   ),
                 ],
               ),
-            ),
-          );
-        },
-      ),
-    );
-  }
+            );
+          },
+        ),
+      );
+    }
 
   @override
   Widget build(BuildContext context) {

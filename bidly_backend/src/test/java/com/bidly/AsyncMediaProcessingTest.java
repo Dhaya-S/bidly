@@ -95,6 +95,7 @@ public class AsyncMediaProcessingTest {
                 categoryRepository,
                 userRepository,
                 null,
+                null,
                 communityPostRepository,
                 mediaService,
                 mediaJobRepository

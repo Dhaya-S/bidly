@@ -91,13 +91,15 @@ class ProfileScreen extends ConsumerWidget {
 
     final user = authState.user;
 
-    final userName = (user?.name != null && user!.name!.isNotEmpty) ? user.name! : 'Arjun Kumar';
+    final userName = (user?.name != null && user!.name!.isNotEmpty)
+        ? user.name!
+        : (user?.phone != null && user!.phone.isNotEmpty ? '+91 ${user.phone}' : 'User');
     final userEmail = (user?.email != null && user!.email!.isNotEmpty)
         ? user.email!
-        : (user?.phone != null && user!.phone.isNotEmpty ? '+91 ${user.phone}' : 'arjun.kumar@gmail.com');
+        : (user?.phone != null && user!.phone.isNotEmpty ? '+91 ${user.phone}' : '');
     final userCity = (user?.city != null && user!.city!.isNotEmpty)
         ? '${user.city}${user.state != null && user.state!.isNotEmpty ? ', ${user.state}' : ''}'
-        : 'Chennai, TN';
+        : 'Location not set';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),

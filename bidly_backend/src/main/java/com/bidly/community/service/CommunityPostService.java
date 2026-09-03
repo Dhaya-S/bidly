@@ -88,16 +88,29 @@ public class CommunityPostService {
 
     /**
      * Retrieves posts for a specific community.
+     * Enforces strict active membership check (no bypass).
      */
     @Transactional(readOnly = true)
     public List<PostDto> getCommunityPosts(UUID communityId, UUID currentUserId, int page, int size) {
+        if (currentUserId == null) {
+            throw BidlyException.unauthorized("Authentication required to view community posts");
+        }
+
+        Community community = communityRepository.findById(communityId)
+                .orElseThrow(() -> BidlyException.notFound("Community"));
+
+        boolean isMember = memberRepository.existsByCommunityIdAndUserId(communityId, currentUserId);
+        if (!isMember) {
+            throw BidlyException.forbidden("You must be an active member of this community to view its posts");
+        }
+
         long t0 = System.currentTimeMillis();
         Page<CommunityPost> postsPage = postRepository.findByCommunityIdOrderByCreatedAtDesc(communityId, PageRequest.of(page, size));
         long t1 = System.currentTimeMillis();
 
         List<CommunityPost> content = postsPage.getContent();
         Set<UUID> likedPostIds = Collections.emptySet();
-        if (currentUserId != null && !content.isEmpty()) {
+        if (!content.isEmpty()) {
             List<UUID> postIds = content.stream().map(CommunityPost::getId).collect(Collectors.toList());
             likedPostIds = postLikeRepository.findLikedPostIdsByUserIdAndPostIds(currentUserId, postIds);
         }
@@ -113,7 +126,34 @@ public class CommunityPostService {
     }
 
     /**
+     * Retrieves single post by ID.
+     * If scoped to a community, enforces strict active membership check (no bypass).
+     */
+    @Transactional(readOnly = true)
+    public PostDto getPostById(UUID postId, UUID currentUserId) {
+        CommunityPost post = postRepository.findById(postId)
+                .orElseThrow(() -> BidlyException.notFound("Post not found: " + postId));
+
+        if (post.getCommunity() != null) {
+            if (currentUserId == null) {
+                throw BidlyException.unauthorized("Authentication required to view this community post");
+            }
+            boolean isMember = memberRepository.existsByCommunityIdAndUserId(post.getCommunity().getId(), currentUserId);
+            if (!isMember) {
+                throw BidlyException.forbidden("You must be an active member of this community to view this post");
+            }
+        }
+
+        Set<UUID> likedPostIds = (currentUserId != null && postLikeRepository.existsByUserIdAndPostId(currentUserId, postId))
+                ? Set.of(postId)
+                : Collections.emptySet();
+
+        return mapToDto(post, currentUserId, likedPostIds);
+    }
+
+    /**
      * Creates a new post in the feed.
+     * For community posts: creator / admin active members only.
      */
     @Transactional
     public PostDto createPost(UUID authorId, CreatePostRequest request) {
@@ -130,10 +170,11 @@ public class CommunityPostService {
                     .orElseThrow(() -> BidlyException.notFound("Community"));
 
             boolean isCreator = community.getCreatedBy() != null && community.getCreatedBy().equals(authorId);
-            boolean isAdmin = memberRepository.existsByCommunityIdAndUserIdAndRole(community.getId(), authorId, "ADMIN");
+            boolean isMember = isCreator || memberRepository.existsByCommunityIdAndUserId(community.getId(), authorId);
+            boolean isAdmin = isCreator || memberRepository.existsByCommunityIdAndUserIdAndRole(community.getId(), authorId, "ADMIN");
 
-            if (!isCreator && !isAdmin) {
-                throw BidlyException.unauthorized("Only community creator and admins can publish posts in this community");
+            if (!isMember || (!isCreator && !isAdmin)) {
+                throw BidlyException.forbidden("Only the community creator can publish posts in this community");
             }
         }
 

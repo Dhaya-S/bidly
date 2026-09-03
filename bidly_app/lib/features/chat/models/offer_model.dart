@@ -19,6 +19,8 @@ class OfferModel {
   final bool isSeller;
 
   final String? orderId;
+  final String? meetupLocation;
+  final DateTime? meetupTime;
   final DateTime createdAt;
   final DateTime? expiresAt;
 
@@ -39,6 +41,8 @@ class OfferModel {
     this.isBuyer = false,
     this.isSeller = false,
     this.orderId,
+    this.meetupLocation,
+    this.meetupTime,
     required this.createdAt,
     this.expiresAt,
   });
@@ -69,6 +73,8 @@ class OfferModel {
       isBuyer: json['buyer'] == true || json['isBuyer'] == true,
       isSeller: json['seller'] == true || json['isSeller'] == true,
       orderId: json['orderId']?.toString(),
+      meetupLocation: json['meetupLocation']?.toString(),
+      meetupTime: json['meetupTime'] != null ? DateTime.tryParse(json['meetupTime'].toString()) : null,
       createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
       expiresAt: json['expiresAt'] != null ? DateTime.parse(json['expiresAt']) : null,
     );

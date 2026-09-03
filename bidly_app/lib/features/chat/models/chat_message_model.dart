@@ -49,6 +49,12 @@ class ChatMessageModel {
     return false;
   }
 
+  bool get isDeliveryAddressShared {
+    if (metadata != null && (metadata!.contains('DELIVERY_ADDRESS_SHARED') || metadata!.contains('recipientName'))) return true;
+    if (content != null && content!.toLowerCase().startsWith('delivery address:')) return true;
+    return false;
+  }
+
   Map<String, dynamic>? get parsedMetadata {
     if (metadata == null || metadata!.isEmpty) return null;
     try {

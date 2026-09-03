@@ -29,6 +29,41 @@ class _SellerOtpVerifiedScreenState extends ConsumerState<SellerOtpVerifiedScree
   bool _isMarkingSold = false;
   String? _errorMessage;
 
+  late String _buyerName;
+  late String _productTitle;
+  late double _productPrice;
+  late String? _productImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _buyerName = widget.buyerName;
+    _productTitle = widget.productTitle;
+    _productPrice = widget.productPrice;
+    _productImageUrl = widget.productImageUrl;
+    if (_buyerName.isEmpty || _productTitle.isEmpty || _productPrice == 0.0) {
+      _fetchOrderDetails();
+    }
+  }
+
+  Future<void> _fetchOrderDetails() async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.get('/orders/${widget.orderId}');
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final data = Map<String, dynamic>.from(res.data['data'] as Map);
+        if (mounted) {
+          setState(() {
+            _buyerName = data['buyerName']?.toString() ?? _buyerName;
+            _productTitle = data['productTitle']?.toString() ?? _productTitle;
+            _productPrice = (data['totalAmount'] is num) ? (data['totalAmount'] as num).toDouble() : _productPrice;
+            _productImageUrl = data['productImageUrl']?.toString() ?? _productImageUrl;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _markAsSold() async {
     setState(() {
       _isMarkingSold = true;
@@ -49,11 +84,11 @@ class _SellerOtpVerifiedScreenState extends ConsumerState<SellerOtpVerifiedScree
           MaterialPageRoute(
             builder: (ctx) => ProductSoldSuccessScreen(
               orderId: widget.orderId,
-              productTitle: widget.productTitle,
-              buyerName: widget.buyerName,
-              productPrice: widget.productPrice,
-              transactionId: summary['transactionId']?.toString() ?? '#TXN-${widget.orderId.substring(0, widget.orderId.length > 8 ? 8 : widget.orderId.length).toUpperCase()}',
-              dateFormatted: summary['saleDateFormatted']?.toString() ?? 'Today',
+              productTitle: _productTitle,
+              buyerName: _buyerName,
+              productPrice: _productPrice,
+              transactionId: summary['transactionId']?.toString() ?? summary['orderNumber']?.toString() ?? '',
+              dateFormatted: summary['saleDateFormatted']?.toString() ?? '',
             ),
           ),
         );
@@ -148,14 +183,14 @@ class _SellerOtpVerifiedScreenState extends ConsumerState<SellerOtpVerifiedScree
                       decoration: BoxDecoration(
                         color: const Color(0xFFE0F2F1),
                         borderRadius: BorderRadius.circular(10),
-                        image: widget.productImageUrl != null && widget.productImageUrl!.isNotEmpty
+                        image: _productImageUrl != null && _productImageUrl!.isNotEmpty
                             ? DecorationImage(
-                                image: NetworkImage(widget.productImageUrl!),
+                                image: NetworkImage(_productImageUrl!),
                                 fit: BoxFit.cover,
                               )
                             : null,
                       ),
-                      child: widget.productImageUrl == null || widget.productImageUrl!.isEmpty
+                      child: _productImageUrl == null || _productImageUrl!.isEmpty
                           ? const Center(
                               child: Icon(Icons.shopping_bag_outlined, color: Color(0xFF004E54)),
                             )
@@ -167,7 +202,7 @@ class _SellerOtpVerifiedScreenState extends ConsumerState<SellerOtpVerifiedScree
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.productTitle,
+                            _productTitle.isNotEmpty ? _productTitle : 'Product',
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 14,
@@ -177,7 +212,7 @@ class _SellerOtpVerifiedScreenState extends ConsumerState<SellerOtpVerifiedScree
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'Buyer: ${widget.buyerName} · ₹${widget.productPrice.toStringAsFixed(0)}',
+                            'Buyer: ${_buyerName.isNotEmpty ? _buyerName : 'Buyer'} · ₹${_productPrice.toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12,

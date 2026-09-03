@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 
-class BankAccountScreen extends StatelessWidget {
+class BankAccountScreen extends ConsumerWidget {
   const BankAccountScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authProvider).user;
+    final accountHolder = (user?.name != null && user!.name!.isNotEmpty)
+        ? user.name!
+        : (user?.phone != null && user!.phone.isNotEmpty ? '+91 ${user.phone}' : 'Account Holder');
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -85,7 +91,7 @@ class BankAccountScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: const [
                               Text(
-                                'HDFC Bank',
+                                'Primary Bank Account',
                                 style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 15,
@@ -126,11 +132,11 @@ class BankAccountScreen extends StatelessWidget {
                     const SizedBox(height: 16),
                     const Divider(height: 1, color: AppTheme.border),
                     const SizedBox(height: 14),
-                    _buildFieldRow('Account Holder', 'Arjun Kumar'),
+                    _buildFieldRow('Account Holder', accountHolder),
                     const SizedBox(height: 10),
                     _buildFieldRow('Account Number', '•••• •••• •••• 8789', isMonospace: true),
                     const SizedBox(height: 10),
-                    _buildFieldRow('IFSC Code', 'HDFC0001234', isMonospace: true),
+                    _buildFieldRow('IFSC Code', '•••• •••• •••', isMonospace: true),
                   ],
                 ),
               ),

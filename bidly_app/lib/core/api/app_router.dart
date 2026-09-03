@@ -258,7 +258,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'verifyOrderOtp',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
-          return SellerOtpVerificationScreen(orderId: id);
+          final extra = state.extra as Map<String, dynamic>?;
+          return SellerOtpVerificationScreen(
+            orderId: id,
+            buyerName: extra?['buyerName']?.toString(),
+            meetupTime: extra?['meetupTime']?.toString(),
+            meetupLocation: extra?['meetupLocation']?.toString(),
+            productTitle: extra?['productTitle']?.toString(),
+            productPrice: (extra?['productPrice'] is num) ? (extra!['productPrice'] as num).toDouble() : null,
+            productImageUrl: extra?['productImageUrl']?.toString(),
+          );
         },
       ),
       GoRoute(
@@ -266,11 +275,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'orderOtpVerified',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
+          final extra = state.extra as Map<String, dynamic>?;
           return SellerOtpVerifiedScreen(
             orderId: id,
-            buyerName: 'Buyer',
-            productTitle: 'Product',
-            productPrice: 0.0,
+            buyerName: extra?['buyerName']?.toString() ?? '',
+            productTitle: extra?['productTitle']?.toString() ?? '',
+            productPrice: (extra?['productPrice'] is num) ? (extra!['productPrice'] as num).toDouble() : 0.0,
+            productImageUrl: extra?['productImageUrl']?.toString(),
           );
         },
       ),
@@ -279,13 +290,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'productSoldSuccess',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
+          final extra = state.extra as Map<String, dynamic>?;
           return ProductSoldSuccessScreen(
             orderId: id,
-            productTitle: 'Product',
-            buyerName: 'Buyer',
-            productPrice: 0.0,
-            transactionId: '#TXN-$id',
-            dateFormatted: 'Today',
+            productTitle: extra?['productTitle']?.toString() ?? '',
+            buyerName: extra?['buyerName']?.toString() ?? '',
+            productPrice: (extra?['productPrice'] is num) ? (extra!['productPrice'] as num).toDouble() : 0.0,
+            transactionId: extra?['transactionId']?.toString() ?? '',
+            dateFormatted: extra?['dateFormatted']?.toString() ?? '',
           );
         },
       ),
@@ -315,16 +327,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.chatConversation,
         name: 'chatConversation',
         builder: (ctx, state) {
-          final thread = state.extra as ChatThreadModel? ??
-              const ChatThreadModel(
-                id: 'thread-default',
-                userName: 'Tech Deals Chennai',
-                userRole: 'Seller',
-                productSubject: 're: iPhone 13 Pro',
-                lastMessage: 'Ready to hand over iPhone 13 Pro',
-                timeAgo: '2m',
-                userInitials: 'TD',
-              );
+          final thread = state.extra as ChatThreadModel?;
+          if (thread == null) {
+            return const MessagesListScreen();
+          }
           return ChatDetailScreen(thread: thread);
         },
       ),
@@ -342,21 +348,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.addMoney,
         name: 'addMoney',
-        builder: (_, __) => const AddMoneyScreen(),
+        builder: (_, state) {
+          final minTopUp = double.tryParse(state.uri.queryParameters['minTopUp'] ?? '');
+          return AddMoneyScreen(minTopUp: minTopUp);
+        },
       ),
       GoRoute(
         path: AppRoutes.moneyAddedSuccess,
         name: 'moneyAddedSuccess',
         builder: (ctx, state) {
-          final txn = state.extra as WalletTransaction? ??
-              WalletTransaction(
-                transactionId: 'BDW03794777',
-                amountAdded: 500,
-                updatedBalance: 38500,
-                status: 'SUCCESS',
-                timestamp: DateTime.now(),
-                paymentMethod: 'UPI',
-              );
+          if (state.extra is Map<String, dynamic>) {
+            final map = state.extra as Map<String, dynamic>;
+            final txn = map['transaction'] as WalletTransaction;
+            final isFromBidding = map['isFromBidding'] as bool? ?? false;
+            return MoneyAddedSuccessScreen(transaction: txn, isFromBidding: isFromBidding);
+          }
+          final txn = state.extra as WalletTransaction?;
+          if (txn == null) {
+            return const AddMoneyScreen();
+          }
           return MoneyAddedSuccessScreen(transaction: txn);
         },
       ),
@@ -369,15 +379,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.productHistory,
         name: 'productHistory',
         builder: (ctx, state) {
-          final order = state.extra as OrderModel? ??
-              const OrderModel(
-                id: 'ord-chair',
-                orderNumber: 'ORD-2026-00841',
-                title: 'Ergonomic Study Chair',
-                price: 4200,
-                date: '3 Jun 2026',
-                sellerName: 'Home Essentials',
-              );
+          final order = state.extra as OrderModel?;
+          if (order == null) {
+            return const OrdersScreen();
+          }
           return ProductHistoryScreen(order: order);
         },
       ),

@@ -209,7 +209,7 @@ class _CourierDetailsBottomSheetState extends ConsumerState<CourierDetailsBottom
                 controller: _trackingController,
                 textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
-                  hintText: 'e.g. EKRT1234567890IN',
+                  hintText: 'Enter courier tracking number',
                   prefixIcon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF004E54), size: 20),
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),

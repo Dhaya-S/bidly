@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 import 'messages_list_screen.dart';
 
 class ChatMessageItem {
@@ -49,45 +51,56 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     'Can you share photos?',
   ];
 
+  bool _isLoading = false;
+
   @override
   void initState() {
     super.initState();
-    _messages = [
-      ChatMessageItem(
-        id: 'msg-1',
-        text: widget.isSellerView
-            ? "Hi! Congratulations on winning the auction 🎉 Ready to dispatch your ${widget.thread.productTitle}."
-            : "Hi! Congratulations on winning the auction 🎉 I'm Arun from Tech Deals Chennai. Ready to hand over the ${widget.thread.productTitle}.",
-        time: '2:30 PM',
-        isMe: widget.isSellerView,
-      ),
-      ChatMessageItem(
-        id: 'msg-2',
-        text: 'The phone is fully charged and packed. All accessories (original box, charger, EarPods) are ready.',
-        time: '2:31 PM',
-        isMe: widget.isSellerView,
-      ),
-      ChatMessageItem(
-        id: 'msg-shipment',
-        text: '',
-        time: '2:35 PM',
-        isMe: widget.isSellerView,
-        isShipmentCard: true,
-        shipmentData: {
-          'trackingNo': widget.thread.trackingNumber,
-          'courier': widget.thread.courierName,
-          'estDelivery': 'Thu, 4 May',
-        },
-      ),
-      ChatMessageItem(
-        id: 'msg-3',
-        text: widget.isSellerView
-            ? 'You have shared tracking details. You can now track your order.'
-            : 'Seller has shared tracking details. You can now track your order.',
-        time: '11:08 am',
-        isMe: widget.isSellerView,
-      ),
-    ];
+    _messages = [];
+    _fetchMessages();
+  }
+
+  Future<void> _fetchMessages() async {
+    setState(() => _isLoading = true);
+    try {
+      final res = await ref.read(apiClientProvider).get('/chat/rooms/${widget.thread.id}/messages');
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        final currentUserId = ref.read(authProvider).user?.id;
+        final list = (res.data['data'] as List).map((m) {
+          final isMe = currentUserId != null && m['senderId']?.toString() == currentUserId;
+          DateTime? created;
+          if (m['createdAt'] != null) {
+            created = DateTime.tryParse(m['createdAt'].toString());
+          }
+          final timeStr = created != null
+              ? '${created.hour > 12 ? created.hour - 12 : (created.hour == 0 ? 12 : created.hour)}:${created.minute.toString().padLeft(2, '0')} ${created.hour >= 12 ? 'PM' : 'AM'}'
+              : '';
+
+          final isShipment = m['type'] == 'COURIER_DISPATCHED' || m['type'] == 'SHIPMENT_UPDATE';
+          return ChatMessageItem(
+            id: m['id']?.toString() ?? '',
+            text: m['content']?.toString() ?? '',
+            time: timeStr,
+            isMe: isMe,
+            isShipmentCard: isShipment,
+            shipmentData: isShipment && m['metadata'] != null
+                ? Map<String, String>.from((m['metadata'] as Map).map((k, v) => MapEntry(k.toString(), v?.toString() ?? '')))
+                : null,
+          );
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _messages = list;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -97,13 +110,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     super.dispose();
   }
 
-  void _sendMessage(String text) {
+  Future<void> _sendMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
     final now = DateTime.now();
     final timeStr = '${now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour)}:${now.minute.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}';
 
+    _textController.clear();
     setState(() {
       _messages.add(
         ChatMessageItem(
@@ -113,8 +127,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
           isMe: true,
         ),
       );
-      _textController.clear();
     });
+
+    try {
+      await ref.read(apiClientProvider).post('/chat/rooms/${widget.thread.id}/messages', data: {
+        'content': trimmed,
+        'type': 'TEXT',
+      });
+    } catch (_) {}
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
@@ -129,7 +149,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final displayName = widget.isSellerView ? (widget.thread.userName.isEmpty ? 'Lokesh' : widget.thread.userName) : 'Tech Deals Chennai';
+    final displayName = widget.thread.userName.isNotEmpty
+        ? widget.thread.userName
+        : (widget.isSellerView ? 'Buyer' : 'Seller');
     final roleLabel = widget.isSellerView ? 'Buyer' : 'Seller';
 
     return Scaffold(
@@ -153,7 +175,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
               ),
               child: Center(
                 child: Text(
-                  widget.isSellerView ? 'LK' : 'TD',
+                  displayName.isNotEmpty
+                      ? (displayName.trim().split(' ').length > 1
+                          ? (displayName.trim().split(' ')[0][0] + displayName.trim().split(' ')[1][0]).toUpperCase()
+                          : displayName.substring(0, displayName.length >= 2 ? 2 : 1).toUpperCase())
+                      : '?',
                   style: const TextStyle(
                     fontFamily: 'Poppins',
                     color: Colors.white,
@@ -229,208 +255,123 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ── Top Auction Won Banner ──────────────────────────
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: const BoxDecoration(
-                color: Color(0xFF004E54),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.emoji_events_outlined, color: Color(0xFFFFD54F), size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Auction Won · ₹43,500 · ${widget.thread.productTitle.split('·').first.trim()}',
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      context.push(AppRoutes.orderTrackByListing.replaceFirst(':listingId', '11111111-1111-1111-1111-111111111111'));
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: 0.25),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: const Size(60, 26),
-                      shape: RoundedRectangleBorder(
+            // ── Dynamic Product Preview Card ────────────────────
+            if (widget.thread.productTitle.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F4F6),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                    ),
-                    child: const Text(
-                      'Track',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                      child: const Center(
+                        child: Icon(Icons.shopping_bag_outlined, color: Color(0xFF004E54), size: 24),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Product Preview Card ────────────────────────────
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F4F6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.phone_iphone_rounded, color: Color(0xFF004E54), size: 26),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.thread.productTitle,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.thread.productTitle,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.textPrimary,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF004E54),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'WON',
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Text(
-                              '₹43,500',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'Courier',
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 9.5,
-                                  color: AppTheme.textSecondary,
-                                ),
-                              ),
+                          if (widget.thread.productPrice > 0 || widget.thread.deliveryType.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                if (widget.thread.productPrice > 0)
+                                  Text(
+                                    '₹${widget.thread.productPrice.toInt()}',
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.textPrimary,
+                                    ),
+                                  ),
+                                if (widget.thread.productPrice > 0 && widget.thread.deliveryType.isNotEmpty)
+                                  const SizedBox(width: 8),
+                                if (widget.thread.deliveryType.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      widget.thread.deliveryType,
+                                      style: const TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 9.5,
+                                        color: AppTheme.textSecondary,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
 
             // ── Messages Stream ────────────────────────────────
             Expanded(
-              child: ListView(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                children: [
-                  // System Notice 1: Buyer Protection
-                  Container(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F6F5),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFB8E0DC)),
-                    ),
-                    child: const Row(
+              child: _isLoading && _messages.isEmpty
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF004E54)))
+                  : ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       children: [
-                        Icon(Icons.shield_outlined, size: 16, color: Color(0xFF007A87)),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'BIDLY Buyer Protection is active for this transaction',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF004E54),
-                            ),
+                        // System Notice: Buyer Protection
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F6F5),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFB8E0DC)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 16, color: Color(0xFF007A87)),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'BIDLY Buyer Protection is active for this transaction',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF004E54),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
+                        const SizedBox(height: 10),
 
-                  // System Notice 2: Auction Notification
-                  Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE6F1F3),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.emoji_events_outlined, size: 16, color: Color(0xFF007A87)),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'BIDLY has notified the seller you won the auction. Delivery method selection in progress.',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF004E54),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Render Message Bubbles & Shipment Cards
+                        // Render Message Bubbles & Shipment Cards
                   ..._messages.map((m) {
                     if (m.isShipmentCard) {
                       return _buildShipmentCard(m);

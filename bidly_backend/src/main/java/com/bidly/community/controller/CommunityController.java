@@ -26,6 +26,19 @@ public class CommunityController {
     }
 
     /**
+     * GET /api/communities/my — Get communities where authenticated user has active membership
+     */
+    @GetMapping("/my")
+    public ResponseEntity<ApiResponse<List<CommunityDto>>> getMyCommunities(
+            @AuthenticationPrincipal UUID userId) {
+        if (userId == null) {
+            throw com.bidly.common.exception.BidlyException.unauthorized("Authentication required to view your communities");
+        }
+        List<CommunityDto> list = communityService.getMyCommunities(userId);
+        return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    /**
      * GET /api/communities — Get list of communities with search filter
      */
     @GetMapping
@@ -110,7 +123,24 @@ public class CommunityController {
     public ResponseEntity<ApiResponse<Map<String, String>>> joinCommunity(
             @PathVariable UUID id,
             @AuthenticationPrincipal UUID userId) {
+        if (userId == null) {
+            throw com.bidly.common.exception.BidlyException.unauthorized("Authentication required to join a community");
+        }
         communityService.joinCommunity(id, userId);
         return ResponseEntity.ok(ApiResponse.success("Joined community successfully", Map.of("status", "JOINED")));
+    }
+
+    /**
+     * POST /api/communities/{id}/leave — Leave a community
+     */
+    @PostMapping("/{id}/leave")
+    public ResponseEntity<ApiResponse<Map<String, String>>> leaveCommunity(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID userId) {
+        if (userId == null) {
+            throw com.bidly.common.exception.BidlyException.unauthorized("Authentication required to leave a community");
+        }
+        communityService.leaveCommunity(id, userId);
+        return ResponseEntity.ok(ApiResponse.success("Left community successfully", Map.of("status", "LEFT")));
     }
 }

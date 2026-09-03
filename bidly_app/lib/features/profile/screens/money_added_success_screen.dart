@@ -5,10 +5,12 @@ import '../providers/wallet_provider.dart';
 
 class MoneyAddedSuccessScreen extends ConsumerWidget {
   final WalletTransaction transaction;
+  final bool isFromBidding;
 
   const MoneyAddedSuccessScreen({
     super.key,
     required this.transaction,
+    this.isFromBidding = false,
   });
 
   @override
@@ -156,6 +158,42 @@ class MoneyAddedSuccessScreen extends ConsumerWidget {
               ),
 
               const SizedBox(height: 24),
+
+              // If navigated from bidding flow, show Continue Bidding button
+              if (isFromBidding) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      ref.read(walletProvider.notifier).fetchWallet();
+                      Navigator.of(context).pop(true);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF004E54),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Continue Bidding',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // View Wallet Button
               Container(

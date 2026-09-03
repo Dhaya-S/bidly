@@ -348,7 +348,9 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(orderProvider);
     final order = state.order;
-    final sellerName = order?.sellerName ?? 'Arun Tech Deals';
+    final sellerName = (order?.sellerName != null && order!.sellerName.isNotEmpty)
+        ? order.sellerName
+        : 'Seller';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -402,7 +404,7 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
                         radius: 28,
                         backgroundColor: const Color(0xFF004E54),
                         child: Text(
-                          sellerName.isNotEmpty ? sellerName.substring(0, 2).toUpperCase() : 'TD',
+                          sellerName.isNotEmpty ? sellerName.substring(0, sellerName.length >= 2 ? 2 : 1).toUpperCase() : '?',
                           style: const TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                       ),

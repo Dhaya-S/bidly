@@ -58,25 +58,9 @@ public class AuctionSeedService {
             List<User> users = userRepository.findAll();
             if (users.isEmpty()) return;
 
-            // 1. Ensure each existing user has a wallet and credit initial demo balance if at 0
+            // 1. Ensure each existing user has a wallet entity initialized
             for (User u : users) {
-                var wallet = walletService.getOrCreateWalletEntity(u.getId());
-                if (wallet.getBalance().compareTo(BigDecimal.ZERO) == 0) {
-                    walletService.topUpFunds(u.getId(), BigDecimal.valueOf(48000.00), "Initial welcome bidding credit");
-                }
-                // Also create a default delivery address if none exists
-                if (addressRepository.findByUserIdOrderByCreatedAtDesc(u.getId()).isEmpty()) {
-                    DeliveryAddress addr = new DeliveryAddress(
-                            u,
-                            u.getName() != null ? u.getName() : "Verified Buyer",
-                            u.getPhone(),
-                            "42, Anna Nagar 3rd Street, Flat 4B",
-                            u.getCity() != null ? u.getCity() : "Chennai",
-                            "600040",
-                            true
-                    );
-                    addressRepository.save(addr);
-                }
+                walletService.getOrCreateWalletEntity(u.getId());
             }
 
             // 2. Ensure existing auction listings have valid end times without inserting mock bids

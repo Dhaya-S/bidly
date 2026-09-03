@@ -9,6 +9,8 @@ import '../models/chat_event_model.dart';
 import '../models/chat_message_model.dart';
 import '../models/chat_room_model.dart';
 import '../services/chat_websocket_service.dart';
+import 'offer_provider.dart';
+import '../../profile/providers/notifications_provider.dart';
 
 class ChatRoomState {
   final ChatRoomModel? room;
@@ -76,6 +78,14 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
   ChatRoomNotifier(this._apiClient, this._ref) : super(const ChatRoomState()) {
     _webSocketService = ChatWebSocketService(
       onEvent: _handleWebSocketEvent,
+      onNotification: (notifJson) {
+        try {
+          final item = NotificationItemModel.fromJson(notifJson);
+          _ref.read(notificationsProvider.notifier).addRealtimeNotification(item);
+        } catch (e) {
+          debugPrint('[CHAT_PROVIDER] Failed to add realtime notification: $e');
+        }
+      },
       onConnected: () {
         state = state.copyWith(isWebSocketConnected: true);
       },
@@ -244,6 +254,21 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
     } else if (event.eventType == 'TYPING_STOPPED') {
       if (event.userId != currentUserId) {
         state = state.copyWith(clearTyping: true);
+      }
+    } else {
+      final evType = event.eventType.toUpperCase();
+      if (evType.contains('OFFER') ||
+          evType.contains('MEETUP') ||
+          evType.contains('OTP') ||
+          evType.contains('SOLD') ||
+          evType.contains('TRANSACTION')) {
+        debugPrint('[CHAT_WS] Resyncing chat room & offer on $evType');
+        if (_currentRoomId != null) {
+          loadMessages(_currentRoomId!, isSilent: true);
+        }
+        if (_currentListingId != null) {
+          _ref.read(offerProvider.notifier).fetchLatestOffer(_currentListingId!);
+        }
       }
     }
   }

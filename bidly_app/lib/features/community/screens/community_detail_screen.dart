@@ -33,8 +33,13 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   void initState() {
     super.initState();
     Future.microtask(() {
-      ref.read(communityProvider.notifier).fetchMembers(widget.community.id);
-      _loadRealPosts();
+      final isJoined = widget.community.isJoined || widget.community.isAdmin || widget.community.userRole == 'ADMIN';
+      if (isJoined) {
+        ref.read(communityProvider.notifier).fetchMembers(widget.community.id);
+        _loadRealPosts();
+      } else {
+        if (mounted) setState(() => _isLoadingPosts = false);
+      }
     });
   }
 
@@ -48,6 +53,58 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
         _isLoadingPosts = false;
       });
     }
+  }
+
+  void _confirmLeaveCommunity(CommunityModel community) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Leave Community',
+          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 18),
+        ),
+        content: Text(
+          'Are you sure you want to leave ${community.name}? You will no longer have access to this community\'s member feed and private listings.',
+          style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: Color(0xFF64748B)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(fontFamily: 'Poppins', color: Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE11D48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
+              final success = await ref.read(communityProvider.notifier).leaveCommunity(community.id);
+              if (success) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('You have left ${community.name}'),
+                    backgroundColor: const Color(0xFF004E54),
+                  ),
+                );
+                nav.pop();
+              } else {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to leave community. Community creators cannot leave their own community.'),
+                    backgroundColor: Color(0xFFE11D48),
+                  ),
+                );
+              }
+            },
+            child: const Text('Leave', style: TextStyle(fontFamily: 'Poppins', color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
   }
 
 
@@ -313,6 +370,8 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                     const SnackBar(content: Text('Only community admins can publish posts in this community')),
                   );
                 }
+              } else if (val == 'leave') {
+                _confirmLeaveCommunity(community);
               } else if (val == 'rules') {
                 showDialog(
                   context: context,
@@ -371,6 +430,17 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   ],
                 ),
               ),
+              if (isJoined && !isAdmin)
+                const PopupMenuItem(
+                  value: 'leave',
+                  child: Row(
+                    children: [
+                      Icon(Icons.exit_to_app_rounded, size: 18, color: Color(0xFFE11D48)),
+                      SizedBox(width: 10),
+                      Text('Leave Community', style: TextStyle(color: Color(0xFFE11D48), fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
             ],
           ),
         ],
@@ -380,9 +450,11 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
         ),
       ),
       body: SafeArea(
-        child: _isLoadingPosts
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFF004E54)))
-            : _communityPosts.isEmpty
+        child: !isJoined
+            ? _buildNonMemberPreview(community)
+            : _isLoadingPosts
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF004E54)))
+                : _communityPosts.isEmpty
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32.0),
@@ -750,6 +822,197 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNonMemberPreview(CommunityModel community) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE6F4F1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.groups_rounded, color: Color(0xFF004E54), size: 38),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  community.name,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E232A),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    community.category,
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.people_outline_rounded, size: 16, color: Color(0xFF64748B)),
+                    const SizedBox(width: 5),
+                    Text(
+                      '${community.membersCount > 0 ? community.membersCount : 1} members',
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                    ),
+                    if (community.city != null && community.city!.isNotEmpty) ...[
+                      const SizedBox(width: 16),
+                      const Icon(Icons.location_on_outlined, size: 16, color: Color(0xFF64748B)),
+                      const SizedBox(width: 4),
+                      Text(
+                        community.city!,
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // About Section
+          if (community.description != null && community.description!.isNotEmpty) ...[
+            const Text(
+              'About Community',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1E232A)),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+              ),
+              child: Text(
+                community.description!,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: Color(0xFF475569), height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Rules Section
+          if (community.rules != null && community.rules!.isNotEmpty) ...[
+            const Text(
+              'Community Rules',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1E232A)),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+              ),
+              child: Text(
+                community.rules!,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: Color(0xFF475569), height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
+          // Private Content Notice
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFBBF7D0)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.lock_outline_rounded, color: Color(0xFF16A34A), size: 20),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Community posts, discussions, and member listings are private to joined members.',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF15803D), fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Join Button
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.group_add_rounded, color: Colors.white, size: 20),
+              label: const Text(
+                'Join & Open Community',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF004E54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+              ),
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
+                if (mounted && ok) {
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text('Welcome to ${community.name}!'),
+                      backgroundColor: const Color(0xFF004E54),
+                    ),
+                  );
+                  ref.read(communityProvider.notifier).fetchMembers(community.id);
+                  _loadRealPosts();
+                }
+              },
             ),
           ),
         ],

@@ -9,8 +9,10 @@ class CommunityState {
   final bool isLoading;
   final bool isCreating;
   final String? errorMessage;
-  final List<CommunityModel> communities;
-  final List<CommunityModel> filteredCommunities;
+  final List<CommunityModel> myCommunities;
+  final List<CommunityModel> filteredMyCommunities;
+  final List<CommunityModel> communities; // Explore communities
+  final List<CommunityModel> filteredCommunities; // Filtered explore communities
   final String searchQuery;
   final CommunityModel? selectedCommunity;
   final List<CommunityMemberModel> members;
@@ -19,6 +21,8 @@ class CommunityState {
     this.isLoading = false,
     this.isCreating = false,
     this.errorMessage,
+    this.myCommunities = const [],
+    this.filteredMyCommunities = const [],
     this.communities = const [],
     this.filteredCommunities = const [],
     this.searchQuery = '',
@@ -30,6 +34,8 @@ class CommunityState {
     bool? isLoading,
     bool? isCreating,
     String? errorMessage,
+    List<CommunityModel>? myCommunities,
+    List<CommunityModel>? filteredMyCommunities,
     List<CommunityModel>? communities,
     List<CommunityModel>? filteredCommunities,
     String? searchQuery,
@@ -40,6 +46,8 @@ class CommunityState {
       isLoading: isLoading ?? this.isLoading,
       isCreating: isCreating ?? this.isCreating,
       errorMessage: errorMessage,
+      myCommunities: myCommunities ?? this.myCommunities,
+      filteredMyCommunities: filteredMyCommunities ?? this.filteredMyCommunities,
       communities: communities ?? this.communities,
       filteredCommunities: filteredCommunities ?? this.filteredCommunities,
       searchQuery: searchQuery ?? this.searchQuery,
@@ -48,15 +56,8 @@ class CommunityState {
     );
   }
 
-  List<CommunityModel> get myCommunities {
-    return communities.where((c) => c.isJoined || c.isAdmin).toList();
-  }
-
-  List<CommunityModel> get filteredMyCommunities {
-    return filteredCommunities.where((c) => c.isJoined || c.isAdmin).toList();
-  }
-
   List<CommunityModel> get exploreCommunities => communities;
+  List<CommunityModel> get filteredExploreCommunities => filteredCommunities;
 }
 
 class CommunityNotifier extends StateNotifier<CommunityState> {
@@ -66,31 +67,42 @@ class CommunityNotifier extends StateNotifier<CommunityState> {
     fetchCommunities();
   }
 
-  /// Fetch all active communities
+  /// Fetch both my communities (joined/created) and explore communities
   Future<void> fetchCommunities({bool isRefresh = false}) async {
-    if (state.communities.isEmpty) {
+    if (state.myCommunities.isEmpty && state.communities.isEmpty) {
       state = state.copyWith(isLoading: true, errorMessage: null);
     }
 
     try {
-      final response = await _apiClient.dio.get('/communities');
+      // 1. Fetch user's joined/owned communities from backend
+      List<CommunityModel> myComms = [];
+      try {
+        final myRes = await _apiClient.dio.get('/communities/my');
+        if (myRes.data != null && myRes.data['success'] == true) {
+          myComms = (myRes.data['data'] as List)
+              .map((item) => CommunityModel.fromJson(item as Map<String, dynamic>))
+              .toList();
+        }
+      } catch (_) {
+        // Unauthenticated or error -> myComms remains empty
+      }
 
-      if (response.data != null && response.data['success'] == true) {
-        final list = (response.data['data'] as List)
+      // 2. Fetch all discoverable communities for Explore
+      List<CommunityModel> allComms = [];
+      final exploreRes = await _apiClient.dio.get('/communities');
+      if (exploreRes.data != null && exploreRes.data['success'] == true) {
+        allComms = (exploreRes.data['data'] as List)
             .map((item) => CommunityModel.fromJson(item as Map<String, dynamic>))
             .toList();
-
-        state = state.copyWith(
-          isLoading: false,
-          communities: list,
-          filteredCommunities: _applySearch(list, state.searchQuery),
-        );
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          errorMessage: response.data?['message']?.toString() ?? 'Failed to load communities',
-        );
       }
+
+      state = state.copyWith(
+        isLoading: false,
+        myCommunities: myComms,
+        filteredMyCommunities: _applySearch(myComms, state.searchQuery),
+        communities: allComms,
+        filteredCommunities: _applySearch(allComms, state.searchQuery),
+      );
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
@@ -99,10 +111,16 @@ class CommunityNotifier extends StateNotifier<CommunityState> {
     }
   }
 
+  /// Reset state on logout so user data does not leak
+  void resetOnLogout() {
+    state = const CommunityState();
+  }
+
   /// Filter communities by search query
   void searchCommunities(String query) {
     state = state.copyWith(
       searchQuery: query,
+      filteredMyCommunities: _applySearch(state.myCommunities, query),
       filteredCommunities: _applySearch(state.communities, query),
     );
   }
@@ -244,7 +262,24 @@ class CommunityNotifier extends StateNotifier<CommunityState> {
     try {
       final response = await _apiClient.dio.post('/communities/$communityId/join');
       if (response.data != null && response.data['success'] == true) {
-        await fetchCommunities();
+        await fetchCommunities(isRefresh: true);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Leave community as authenticated member
+  Future<bool> leaveCommunity(String communityId) async {
+    try {
+      final response = await _apiClient.dio.post('/communities/$communityId/leave');
+      if (response.data != null && response.data['success'] == true) {
+        await fetchCommunities(isRefresh: true);
+        if (state.selectedCommunity?.id == communityId) {
+          state = state.copyWith(selectedCommunity: null, members: []);
+        }
         return true;
       }
       return false;
@@ -339,6 +374,11 @@ class CommunityNotifier extends StateNotifier<CommunityState> {
             'isLiked': map['likedByMe'] as bool? ?? false,
           };
         }).toList();
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 403) {
+        // Access forbidden: user is not an active member
+        return [];
       }
     } catch (_) {}
     return [];

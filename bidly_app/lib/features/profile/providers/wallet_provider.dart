@@ -20,13 +20,13 @@ class WalletTransaction {
 
   factory WalletTransaction.fromJson(Map<String, dynamic> json) {
     return WalletTransaction(
-      transactionId: json['transactionId']?.toString() ?? 'BDW03794777',
+      transactionId: json['transactionId']?.toString() ?? '',
       amountAdded: (json['amountAdded'] is num)
           ? (json['amountAdded'] as num).toDouble()
-          : (double.tryParse(json['amountAdded']?.toString() ?? '500') ?? 500.0),
+          : (double.tryParse(json['amountAdded']?.toString() ?? '0') ?? 0.0),
       updatedBalance: (json['updatedBalance'] is num)
           ? (json['updatedBalance'] as num).toDouble()
-          : (double.tryParse(json['updatedBalance']?.toString() ?? '38500') ?? 38500.0),
+          : (double.tryParse(json['updatedBalance']?.toString() ?? '0') ?? 0.0),
       status: json['status']?.toString() ?? 'SUCCESS',
       timestamp: json['timestamp'] != null
           ? DateTime.tryParse(json['timestamp'].toString()) ?? DateTime.now()
@@ -45,7 +45,7 @@ class WalletState {
   final WalletTransaction? lastTransaction;
 
   const WalletState({
-    this.balance = 38000.0,
+    this.balance = 0.0,
     this.reservedBalance = 0.0,
     this.isLoading = false,
     this.isAdding = false,
@@ -87,7 +87,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
         final data = res.data['data'];
         final bal = (data['balance'] is num)
             ? (data['balance'] as num).toDouble()
-            : (double.tryParse(data['balance']?.toString() ?? '38000') ?? 38000.0);
+            : (double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0);
         final resBal = (data['reservedBalance'] is num)
             ? (data['reservedBalance'] as num).toDouble()
             : (double.tryParse(data['reservedBalance']?.toString() ?? '0') ?? 0.0);
@@ -95,8 +95,8 @@ class WalletNotifier extends StateNotifier<WalletState> {
       } else {
         state = state.copyWith(isLoading: false);
       }
-    } catch (_) {
-      state = state.copyWith(isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
   }
 
@@ -122,25 +122,12 @@ class WalletNotifier extends StateNotifier<WalletState> {
         );
         return txn;
       }
-    } catch (_) {}
-
-    // Graceful optimistic fallback for smooth real-time UX
-    final newBalance = state.balance + amount;
-    final fallbackTxn = WalletTransaction(
-      transactionId: 'BDW0379${(DateTime.now().millisecondsSinceEpoch % 9000 + 1000)}',
-      amountAdded: amount,
-      updatedBalance: newBalance,
-      status: 'SUCCESS',
-      timestamp: DateTime.now(),
-      paymentMethod: paymentMethod,
-    );
-
-    state = state.copyWith(
-      balance: newBalance,
-      isAdding: false,
-      lastTransaction: fallbackTxn,
-    );
-    return fallbackTxn;
+      state = state.copyWith(isAdding: false, errorMessage: 'Top-up failed. Please try again.');
+      return null;
+    } catch (e) {
+      state = state.copyWith(isAdding: false, errorMessage: e.toString());
+      return null;
+    }
   }
 }
 

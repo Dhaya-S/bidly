@@ -84,6 +84,31 @@ class OrderNotifier extends StateNotifier<OrderState> {
     return false;
   }
 
+  Future<bool> updateDeliveryAddress(String orderId, {String? addressId, String? fullName, String? phone, String? addressLine, String? city, String? pincode}) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final res = await _apiClient.put('/orders/$orderId/delivery-address', data: {
+        'addressId': addressId,
+        'fullName': fullName,
+        'phone': phone,
+        'addressLine': addressLine,
+        'city': city,
+        'pincode': pincode,
+      });
+      if (res.data != null && res.data['success'] == true) {
+        final updatedOrder = OrderModel.fromJson(res.data['data']);
+        state = state.copyWith(isLoading: false, order: updatedOrder);
+        return true;
+      } else {
+        state = state.copyWith(isLoading: false, errorMessage: res.data?['message']?.toString() ?? 'Failed to update address');
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: 'Network error updating address');
+      return false;
+    }
+  }
+
   Future<bool> verifyMeetupOtp(String orderId, String otp) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {

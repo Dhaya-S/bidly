@@ -50,6 +50,17 @@ public class CommunityPostController {
     }
 
     /**
+     * GET /api/posts/{id} — Get post by ID (membership enforced if community post)
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<PostDto>> getPost(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID currentUserId) {
+        PostDto post = postService.getPostById(id, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success(post));
+    }
+
+    /**
      * POST /api/posts — Create a new post
      */
     @PostMapping

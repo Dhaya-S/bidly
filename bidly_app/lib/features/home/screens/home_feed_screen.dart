@@ -199,51 +199,60 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
                               letterSpacing: -0.5,
                             ),
                           ),
-                          const Spacer(),
+                          const SizedBox(width: 8),
 
-                          // Center Location Pill
-                          GestureDetector(
-                            onTap: () => _showLocationPicker(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: isFeedTab
-                                    ? const Color(0xFF1E232A).withValues(alpha: 0.85)
-                                    : AppTheme.primarySoft,
-                                borderRadius: BorderRadius.circular(20),
-                                border: isFeedTab
-                                    ? Border.all(color: Colors.white.withValues(alpha: 0.15))
-                                    : null,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.location_on_outlined,
-                                    size: 14,
-                                    color: isFeedTab ? Colors.white : AppTheme.primary,
+                          // Center Location Pill (Flexibly bounded to prevent overflow on narrow screens)
+                          Expanded(
+                            child: Center(
+                              child: GestureDetector(
+                                onTap: () => _showLocationPicker(context),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  constraints: const BoxConstraints(maxWidth: 180),
+                                  decoration: BoxDecoration(
+                                    color: isFeedTab
+                                        ? const Color(0xFF1E232A).withValues(alpha: 0.85)
+                                        : AppTheme.primarySoft,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: isFeedTab
+                                        ? Border.all(color: Colors.white.withValues(alpha: 0.15))
+                                        : null,
                                   ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    locationText,
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: isFeedTab ? Colors.white : AppTheme.primary,
-                                    ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.location_on_outlined,
+                                        size: 14,
+                                        color: isFeedTab ? Colors.white : AppTheme.primary,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          locationText,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontFamily: 'Poppins',
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: isFeedTab ? Colors.white : AppTheme.primary,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        size: 16,
+                                        color: isFeedTab ? Colors.white : AppTheme.primary,
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 3),
-                                  Icon(
-                                    Icons.keyboard_arrow_down_rounded,
-                                    size: 17,
-                                    color: isFeedTab ? Colors.white : AppTheme.primary,
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                          const Spacer(),
+                          const SizedBox(width: 8),
 
                           // Notification Bell with Badge 3
                           Stack(

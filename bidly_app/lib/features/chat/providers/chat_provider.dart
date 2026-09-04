@@ -100,12 +100,19 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
     );
   }
 
-  /// Initialize chat for a given listing (creates or joins room)
-  Future<ChatRoomModel?> initRoomForListing(String listingId, double initialPrice) async {
+  /// Initialize chat for a given listing (creates or joins room) with optional buyerId/offerId isolation
+  Future<ChatRoomModel?> initRoomForListing(String listingId, double initialPrice, {String? buyerId, String? offerId}) async {
     _currentListingId = listingId;
-    state = state.copyWith(isLoading: state.messages.isEmpty, error: null, offerAmount: initialPrice);
+    state = state.copyWith(messages: const [], isLoading: true, error: null, offerAmount: initialPrice);
     try {
-      final res = await _apiClient.post('/chat/rooms', data: {'listingId': listingId});
+      final payload = <String, dynamic>{'listingId': listingId};
+      if (buyerId != null && buyerId.isNotEmpty) {
+        payload['buyerId'] = buyerId;
+      }
+      if (offerId != null && offerId.isNotEmpty) {
+        payload['offerId'] = offerId;
+      }
+      final res = await _apiClient.post('/chat/rooms', data: payload);
       if (res.data != null && res.data['success'] == true) {
         final room = ChatRoomModel.fromJson(res.data['data']);
         _currentRoomId = room.id;

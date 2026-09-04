@@ -98,6 +98,52 @@ class ChatMessageModel {
     );
   }
 
+  static DateTime _parseDateTime(dynamic raw, {DateTime? fallback}) {
+    if (raw == null) return fallback ?? DateTime.now();
+    if (raw is List && raw.length >= 3) {
+      final y = (raw[0] as num).toInt();
+      final m = (raw[1] as num).toInt();
+      final d = (raw[2] as num).toInt();
+      final h = raw.length > 3 ? (raw[3] as num).toInt() : 0;
+      final min = raw.length > 4 ? (raw[4] as num).toInt() : 0;
+      final s = raw.length > 5 ? (raw[5] as num).toInt() : 0;
+      final ms = raw.length > 6 ? ((raw[6] as num).toInt() ~/ 1000000) : 0;
+      return DateTime.utc(y, m, d, h, min, s, ms).toLocal();
+    }
+    if (raw is int) {
+      return (raw < 10000000000)
+          ? DateTime.fromMillisecondsSinceEpoch(raw * 1000, isUtc: true).toLocal()
+          : DateTime.fromMillisecondsSinceEpoch(raw, isUtc: true).toLocal();
+    }
+    if (raw is double) {
+      return DateTime.fromMillisecondsSinceEpoch((raw * 1000).toInt(), isUtc: true).toLocal();
+    }
+    final str = raw.toString().trim();
+    if (str.isEmpty) return fallback ?? DateTime.now();
+    final asInt = int.tryParse(str);
+    if (asInt != null) {
+      return (asInt < 10000000000)
+          ? DateTime.fromMillisecondsSinceEpoch(asInt * 1000, isUtc: true).toLocal()
+          : DateTime.fromMillisecondsSinceEpoch(asInt, isUtc: true).toLocal();
+    }
+    final asDouble = double.tryParse(str);
+    if (asDouble != null) {
+      return DateTime.fromMillisecondsSinceEpoch((asDouble * 1000).toInt(), isUtc: true).toLocal();
+    }
+    if (str.contains('T') || (str.length >= 19 && str[10] == ' ')) {
+      final isoStr = str.contains('T') ? str : str.replaceFirst(' ', 'T');
+      final hasTz = isoStr.endsWith('Z') || isoStr.contains('+') || RegExp(r'-\d{2}:\d{2}$').hasMatch(isoStr);
+      final normalized = hasTz ? isoStr : '${isoStr}Z';
+      final dt = DateTime.tryParse(normalized);
+      if (dt != null) return dt.toLocal();
+    }
+    final dt = DateTime.tryParse(str);
+    if (dt != null) {
+      return dt.isUtc ? dt.toLocal() : dt;
+    }
+    return fallback ?? DateTime.now();
+  }
+
   factory ChatMessageModel.fromJson(Map<String, dynamic> json, {String? currentUserId}) {
     final senderId = json['senderId'] as String? ?? '';
     final isMine = (json['mine'] == true) || (currentUserId != null && senderId == currentUserId);
@@ -111,13 +157,11 @@ class ChatMessageModel {
       offerAmount: (json['offerAmount'] as num?)?.toDouble(),
       type: json['type'] as String? ?? 'TEXT',
       status: json['status'] as String? ?? 'SENT',
-      readAt: json['readAt'] != null ? DateTime.tryParse(json['readAt'].toString()) : null,
+      readAt: json['readAt'] != null ? _parseDateTime(json['readAt'], fallback: null) : null,
       mediaUrl: json['mediaUrl'] as String?,
       metadata: json['metadata'] as String?,
       isMine: isMine,
-      createdAt: json['createdAt'] != null
-          ? DateTime.tryParse(json['createdAt'].toString())?.toLocal() ?? DateTime.now()
-          : DateTime.now(),
+      createdAt: _parseDateTime(json['createdAt']),
     );
   }
 

@@ -78,7 +78,11 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
     );
 
     widget.activeNotifier.addListener(_onActiveIndexChanged);
-    _checkPlaybackState(widget.activeNotifier.value);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _checkPlaybackState(widget.activeNotifier.value);
+      }
+    });
   }
 
   @override
@@ -89,7 +93,11 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
       widget.activeNotifier.addListener(_onActiveIndexChanged);
     }
     if (widget.listing.id != oldWidget.listing.id || widget.isHomeVisible != oldWidget.isHomeVisible) {
-      _checkPlaybackState(widget.activeNotifier.value);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _checkPlaybackState(widget.activeNotifier.value);
+        }
+      });
     }
   }
 
@@ -689,29 +697,33 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                   ),
                   if (_getLocationText() != null) ...[
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF004E54),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.location_on_outlined, color: Colors.white70, size: 11),
-                          const SizedBox(width: 3),
-                          Text(
-                            _getLocationText()!,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF004E54),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.location_on_outlined, color: Colors.white70, size: 11),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                _getLocationText()!,
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -802,6 +814,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 const Icon(Icons.timer_outlined, color: Colors.white, size: 12),
                                 const SizedBox(width: 4),

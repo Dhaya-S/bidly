@@ -186,8 +186,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'offerChat',
         builder: (ctx, state) {
           final id = state.pathParameters['listingId'] ?? '';
-          final listing = state.extra as ListingModel?;
-          return OfferChatScreen(listingId: id, listing: listing);
+          ListingModel? listing;
+          String? buyerId = state.uri.queryParameters['buyerId'];
+          String? offerId = state.uri.queryParameters['offerId'];
+          String? buyerName = state.uri.queryParameters['buyerName'];
+
+          if (state.extra is ListingModel) {
+            listing = state.extra as ListingModel;
+          } else if (state.extra is Map<String, dynamic>) {
+            final map = state.extra as Map<String, dynamic>;
+            listing = map['listing'] as ListingModel?;
+            buyerId ??= map['buyerId'] as String?;
+            offerId ??= map['offerId'] as String?;
+            buyerName ??= map['buyerName'] as String?;
+          }
+
+          return OfferChatScreen(
+            listingId: id,
+            listing: listing,
+            buyerId: buyerId,
+            offerId: offerId,
+            buyerName: buyerName,
+          );
         },
       ),
       GoRoute(

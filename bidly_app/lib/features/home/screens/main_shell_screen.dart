@@ -47,7 +47,11 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
       setState(() {
         _currentIndex = widget.initialIndex;
       });
-      ref.read(selectedNavIndexProvider.notifier).state = widget.initialIndex;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(selectedNavIndexProvider.notifier).state = widget.initialIndex;
+        }
+      });
     }
   }
 

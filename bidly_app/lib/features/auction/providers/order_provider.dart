@@ -109,6 +109,24 @@ class OrderNotifier extends StateNotifier<OrderState> {
     }
   }
 
+  Future<bool> confirmMeetup(String orderId) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final res = await _apiClient.post('/orders/$orderId/confirm-meetup');
+      if (res.data != null && res.data['success'] == true) {
+        final updatedOrder = OrderModel.fromJson(res.data['data']);
+        state = state.copyWith(isLoading: false, order: updatedOrder);
+        return true;
+      } else {
+        state = state.copyWith(isLoading: false, errorMessage: res.data?['message']?.toString() ?? 'Failed to confirm meetup');
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: 'Network error confirming meetup: $e');
+      return false;
+    }
+  }
+
   Future<bool> verifyMeetupOtp(String orderId, String otp) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {

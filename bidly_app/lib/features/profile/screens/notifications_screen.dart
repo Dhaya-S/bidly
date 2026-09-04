@@ -14,8 +14,12 @@ class NotificationsScreen extends ConsumerWidget {
   void _handleNotificationTap(BuildContext context, WidgetRef ref, NotificationItemModel notif) {
     ref.read(notificationsProvider.notifier).markAsRead(notif.id);
 
+    final listingId = notif.listingId ?? notif.targetId;
+    final buyerId = notif.metadata?['buyerId']?.toString();
+    final offerId = notif.offerId ?? notif.metadata?['offerId']?.toString() ?? notif.targetId;
+    final buyerName = notif.metadata?['buyerName']?.toString();
+
     if (notif.type == 'NEW_OFFER' || notif.type == 'OFFER') {
-      final listingId = notif.listingId ?? notif.targetId;
       if (listingId != null && listingId.isNotEmpty) {
         final offerAmount = (notif.metadata?['offerAmount'] != null)
             ? (double.tryParse(notif.metadata!['offerAmount'].toString()) ?? 0.0)
@@ -23,14 +27,13 @@ class NotificationsScreen extends ConsumerWidget {
         final listingPrice = (notif.metadata?['listingPrice'] != null)
             ? (double.tryParse(notif.metadata!['listingPrice'].toString()) ?? 0.0)
             : 0.0;
-        final buyerName = notif.metadata?['buyerName']?.toString() ?? 'Buyer';
-        final offerId = notif.offerId ?? notif.targetId ?? notif.id;
 
         NewOfferBottomSheet.show(
           context,
-          offerId: offerId,
+          offerId: offerId ?? '',
           listingId: listingId,
-          buyerName: buyerName,
+          buyerId: buyerId,
+          buyerName: buyerName ?? 'Buyer',
           offerAmount: offerAmount,
           productTitle: notif.body,
           listingPrice: listingPrice,
@@ -38,7 +41,25 @@ class NotificationsScreen extends ConsumerWidget {
         return;
       }
       context.push(AppRoutes.chatList);
-    } else if (notif.type == 'MEETUP_SCHEDULED' || notif.type == 'OTP_READY') {
+    } else if (notif.type == 'MEETUP_SCHEDULED' || notif.type == 'MEETUP_CONFIRMED') {
+      if (listingId != null && listingId.isNotEmpty) {
+        context.push(
+          '/chat/offer/$listingId',
+          extra: {
+            'buyerId': buyerId,
+            'offerId': offerId,
+            'buyerName': buyerName,
+          },
+        );
+        return;
+      }
+      final orderId = notif.orderId ?? notif.targetId;
+      if (orderId != null && orderId.isNotEmpty) {
+        BuyerShowOtpModal.show(context, orderId: orderId);
+        return;
+      }
+      context.push(AppRoutes.orders);
+    } else if (notif.type == 'OTP_READY') {
       final orderId = notif.orderId ?? notif.targetId;
       if (orderId != null && orderId.isNotEmpty) {
         BuyerShowOtpModal.show(context, orderId: orderId);
@@ -52,10 +73,16 @@ class NotificationsScreen extends ConsumerWidget {
         return;
       }
       context.push(AppRoutes.myListings);
-    } else if (notif.type == 'OFFER_ACCEPTED') {
-      final listingId = notif.listingId ?? notif.targetId;
+    } else if (notif.type == 'OFFER_ACCEPTED' || notif.type == 'OFFER_COUNTERED' || notif.type == 'OFFER_REJECTED') {
       if (listingId != null && listingId.isNotEmpty) {
-        context.push('/chat/offer/$listingId');
+        context.push(
+          '/chat/offer/$listingId',
+          extra: {
+            'buyerId': buyerId,
+            'offerId': offerId,
+            'buyerName': buyerName,
+          },
+        );
         return;
       }
       context.push(AppRoutes.chatList);
@@ -64,6 +91,17 @@ class NotificationsScreen extends ConsumerWidget {
     } else if (notif.type == 'SHIPPED' || notif.type == 'DELIVERED') {
       context.push(AppRoutes.orders);
     } else {
+      if (listingId != null && listingId.isNotEmpty) {
+        context.push(
+          '/chat/offer/$listingId',
+          extra: {
+            'buyerId': buyerId,
+            'offerId': offerId,
+            'buyerName': buyerName,
+          },
+        );
+        return;
+      }
       context.push(AppRoutes.home);
     }
   }

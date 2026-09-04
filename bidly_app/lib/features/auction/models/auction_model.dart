@@ -310,6 +310,7 @@ class OrderModel {
   final String? meetupTime;
   final String? meetupOtp;
   final bool meetupOtpVerified;
+  final bool isMeetupConfirmed;
   final bool isSeller;
   final bool isBuyer;
 
@@ -348,11 +349,13 @@ class OrderModel {
     this.meetupTime,
     this.meetupOtp,
     this.meetupOtpVerified = false,
+    this.isMeetupConfirmed = false,
     this.isSeller = false,
     this.isBuyer = false,
   });
 
   bool get isMeetup => deliveryType == 'IN_PERSON_MEETUP';
+  bool get isMeetupDelivery => isMeetup;
   bool get isDirectSale => orderSource == 'DIRECT_SALE';
 
   factory OrderModel.fromJson(Map<String, dynamic> json) {
@@ -361,14 +364,16 @@ class OrderModel {
       orderNumber: json['orderNumber'] ?? '',
       listingId: json['listingId'] ?? '',
       productTitle: json['productTitle'] ?? '',
-      productCondition: json['productCondition'] ?? '',
+      productCondition: json['productCondition'] ?? 'LIKE_NEW',
       primaryImageUrl: json['primaryImageUrl'],
-      wonAmount: (json['wonAmount'] as num?)?.toDouble() ?? 0.0,
-      platformFee: (json['platformFee'] as num?)?.toDouble() ?? 0.0,
-      totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
-      status: json['status'] ?? 'AUCTION_WON',
-      paymentStatus: json['paymentStatus'] ?? 'IN_ESCROW',
-      courierPartner: json['courierPartner'],
+      wonAmount: (json['wonAmount'] is num)
+          ? (json['wonAmount'] as num).toDouble()
+          : (json['totalAmount'] is num ? (json['totalAmount'] as num).toDouble() : 0.0),
+      platformFee: (json['platformFee'] is num) ? (json['platformFee'] as num).toDouble() : 0.0,
+      totalAmount: (json['totalAmount'] is num) ? (json['totalAmount'] as num).toDouble() : 0.0,
+      status: json['status'] ?? 'ORDER_CONFIRMED',
+      paymentStatus: json['paymentStatus'] ?? 'PENDING',
+      courierPartner: json['courierPartner'] ?? '',
       trackingNumber: json['trackingNumber'],
       estimatedDeliveryDate: json['estimatedDeliveryDate'],
       deliveredAt: json['deliveredAt'],
@@ -376,7 +381,7 @@ class OrderModel {
       buyerName: json['buyerName'] ?? '',
       sellerId: json['sellerId'] ?? '',
       sellerName: json['sellerName'] ?? '',
-      sellerRating: (json['sellerRating'] as num?)?.toDouble() ?? 0.0,
+      sellerRating: (json['sellerRating'] is num) ? (json['sellerRating'] as num).toDouble() : 0.0,
       sellerSalesCount: json['sellerSalesCount'] ?? 0,
       deliveryAddressFullName: json['deliveryAddressFullName'] ?? '',
       deliveryAddressPhone: json['deliveryAddressPhone'] ?? '',
@@ -394,6 +399,7 @@ class OrderModel {
       meetupTime: json['meetupTime'],
       meetupOtp: json['meetupOtp'],
       meetupOtpVerified: json['meetupOtpVerified'] ?? false,
+      isMeetupConfirmed: json['isMeetupConfirmed'] == true || json['meetupConfirmed'] == true,
       isSeller: json['isSeller'] ?? json['seller'] ?? false,
       isBuyer: json['isBuyer'] ?? json['buyer'] ?? false,
     );

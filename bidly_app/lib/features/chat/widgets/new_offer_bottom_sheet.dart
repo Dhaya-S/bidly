@@ -6,6 +6,7 @@ import 'reject_offer_bottom_sheet.dart';
 class NewOfferBottomSheet extends StatelessWidget {
   final String offerId;
   final String listingId;
+  final String? buyerId;
   final String buyerName;
   final String? buyerAvatarUrl;
   final String buyerLocality;
@@ -18,6 +19,7 @@ class NewOfferBottomSheet extends StatelessWidget {
     super.key,
     required this.offerId,
     required this.listingId,
+    this.buyerId,
     required this.buyerName,
     this.buyerAvatarUrl,
     this.buyerLocality = 'Nearby',
@@ -31,6 +33,7 @@ class NewOfferBottomSheet extends StatelessWidget {
     BuildContext context, {
     required String offerId,
     required String listingId,
+    String? buyerId,
     required String buyerName,
     String? buyerAvatarUrl,
     String buyerLocality = 'Nearby',
@@ -46,6 +49,7 @@ class NewOfferBottomSheet extends StatelessWidget {
       builder: (ctx) => NewOfferBottomSheet(
         offerId: offerId,
         listingId: listingId,
+        buyerId: buyerId,
         buyerName: buyerName,
         buyerAvatarUrl: buyerAvatarUrl,
         buyerLocality: buyerLocality,
@@ -236,7 +240,14 @@ class NewOfferBottomSheet extends StatelessWidget {
             child: ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                context.push('/chat/offer/$listingId');
+                context.push(
+                  '/chat/offer/$listingId',
+                  extra: {
+                    'buyerId': buyerId,
+                    'offerId': offerId,
+                    'buyerName': buyerName,
+                  },
+                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF004E54),

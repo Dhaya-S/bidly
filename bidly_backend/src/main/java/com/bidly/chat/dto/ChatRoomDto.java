@@ -1,5 +1,6 @@
 package com.bidly.chat.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -18,10 +19,13 @@ public class ChatRoomDto {
     private String otherUserRole; // 'Buyer' or 'Seller'
     private String status;
     private int unreadCount;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant lastMessageAt;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant createdAt;
     private String lastMessagePreview;
     private boolean isOnline;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant lastSeen;
 
     public ChatRoomDto() {}

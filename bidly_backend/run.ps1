@@ -14,6 +14,25 @@ if (Test-Path $envFile) {
     exit 1
 }
 
+# Auto-detect JAVA_HOME if not configured
+if (-not $env:JAVA_HOME -and -not (Get-Command java -ErrorAction SilentlyContinue)) {
+    $candidateJdks = @(
+        "C:\Program Files\Android\Android Studio\jbr",
+        "C:\Program Files\Java\jdk-21",
+        "C:\Program Files\Java\jdk-17",
+        "C:\Program Files\Eclipse Adoptium\jdk-21.0.0.35-hotspot",
+        "C:\Program Files\Eclipse Adoptium\jdk-17.0.0.35-hotspot"
+    )
+    foreach ($jdk in $candidateJdks) {
+        if (Test-Path "$jdk\bin\java.exe") {
+            $env:JAVA_HOME = $jdk
+            $env:PATH = "$jdk\bin;$env:PATH"
+            Write-Host "[OK] JAVA_HOME auto-configured to $jdk" -ForegroundColor Green
+            break
+        }
+    }
+}
+
 # Check and free port 8081 if occupied
 $portOccupied = Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($portOccupied) {

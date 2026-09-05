@@ -99,7 +99,7 @@ public class OrderService {
         order.setAmount(agreedAmount);
         order.setPlatformFee(platformFee);
         order.setTotalAmount(totalAmount);
-        order.setPaymentStatus(Order.PaymentStatus.IN_ESCROW);
+        order.setPaymentStatus(deliveryType == Order.DeliveryType.IN_PERSON_MEETUP ? Order.PaymentStatus.PENDING : Order.PaymentStatus.IN_ESCROW);
 
         if (deliveryType == Order.DeliveryType.IN_PERSON_MEETUP) {
             String secureOtp = String.format("%06d", new Random().nextInt(900000) + 100000);
@@ -137,8 +137,10 @@ public class OrderService {
         Order order = orderRepository.findByIdWithPessimisticLock(orderId)
                 .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
 
-        if (!order.getSeller().getId().equals(currentUserId)) {
-            throw BidlyException.forbidden("Only the seller can schedule meetup for this order");
+        boolean isSeller = order.getSeller().getId().equals(currentUserId);
+        boolean isBuyer = order.getBuyer().getId().equals(currentUserId);
+        if (!isSeller && !isBuyer) {
+            throw BidlyException.forbidden("Only the buyer or seller can schedule meetup for this order");
         }
 
         if (order.getStatus() == Order.OrderStatus.DELIVERED || order.getStatus() == Order.OrderStatus.CANCELLED) {
@@ -192,6 +194,8 @@ public class OrderService {
             msg.setType(com.bidly.chat.entity.ChatMessage.MessageType.MEETUP_REQUEST);
             msg.setStatus(com.bidly.chat.entity.ChatMessage.MessageStatus.SENT);
             msg.setContent("Meeting Scheduled\nDate: " + dateFormatted + "\nTime: " + timeFormatted + "\nLocation: " + saved.getMeetupLocation());
+            msg.setMetadata(String.format("{\"date\":\"%s\",\"time\":\"%s\",\"location\":\"%s\",\"orderId\":\"%s\"}",
+                    dateFormatted, timeFormatted, saved.getMeetupLocation(), saved.getId()));
             com.bidly.chat.entity.ChatMessage savedMsg = chatMessageRepository.save(msg);
             room.setLastMessageAt(Instant.now());
             room.setUpdatedAt(Instant.now());
@@ -208,26 +212,92 @@ public class OrderService {
             messagingTemplate.convertAndSend("/topic/chats/" + room.getId(), (Object) eventData);
         });
 
-        // Send persistent notification & real-time alert to Buyer
+        // Send persistent notification & real-time alert to the other party
         String metadataJson = String.format(
-                "{\"orderId\":\"%s\",\"date\":\"%s\",\"time\":\"%s\",\"location\":\"%s\"}",
-                saved.getId(), dateFormatted, timeFormatted, saved.getMeetupLocation());
+                "{\"orderId\":\"%s\",\"date\":\"%s\",\"time\":\"%s\",\"location\":\"%s\",\"buyerId\":\"%s\",\"offerId\":\"%s\",\"buyerName\":\"%s\"}",
+                saved.getId(), dateFormatted, timeFormatted, saved.getMeetupLocation(),
+                saved.getBuyer().getId(), saved.getOffer() != null ? saved.getOffer().getId() : "", saved.getBuyer().getName());
 
+        com.bidly.user.entity.User recipient = isSeller ? saved.getBuyer() : saved.getSeller();
         notificationService.sendNotification(
-                saved.getBuyer(),
+                recipient,
                 com.bidly.notification.entity.Notification.NotificationType.MEETUP_SCHEDULED,
                 "Meeting Scheduled",
-                "Your meetup for " + saved.getListing().getTitle() + " is confirmed for " + timeFormatted + " at " + saved.getMeetupLocation(),
+                "Meetup for " + saved.getListing().getTitle() + " is set for " + timeFormatted + " at " + saved.getMeetupLocation(),
                 saved.getListing(),
                 saved.getOffer(),
                 saved,
-                "Show OTP",
-                "/orders/" + saved.getId() + "/track",
+                isSeller ? "Confirm Meetup" : "View Meetup",
+                "/chat/offer/" + saved.getListing().getId(),
                 saved.getId(),
                 metadataJson
         );
 
         log.info("[MEETUP] Scheduled meetup for order {} at {} on {}", saved.getId(), saved.getMeetupLocation(), dateFormatted);
+        return mapToSummaryDto(saved, currentUserId);
+    }
+
+    /**
+     * Buyer confirms the scheduled meetup, which unlocks the Show OTP option.
+     */
+    @Transactional
+    public OrderSummaryDto confirmMeetup(UUID orderId, UUID currentUserId) {
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId)
+                .orElseThrow(() -> BidlyException.notFound("Order not found: " + orderId));
+
+        boolean isBuyer = order.getBuyer().getId().equals(currentUserId);
+        boolean isSeller = order.getSeller().getId().equals(currentUserId);
+        if (!isBuyer && !isSeller) {
+            throw BidlyException.forbidden("Only order participants can confirm this meetup");
+        }
+
+        order.setClientActionId("MEETUP_CONFIRMED");
+        Order saved = orderRepository.save(order);
+
+        // Record tracking event
+        trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.ORDER_CONFIRMED, "Meetup Confirmed", "Meetup confirmed by " + (isBuyer ? "buyer" : "seller"), Instant.now()));
+
+        // Post confirmation message to chat room
+        chatRoomRepository.findByListingIdAndBuyerId(saved.getListing().getId(), saved.getBuyer().getId()).ifPresent(room -> {
+            com.bidly.chat.entity.ChatMessage msg = new com.bidly.chat.entity.ChatMessage();
+            msg.setRoomId(room.getId());
+            msg.setSenderId(currentUserId);
+            msg.setType(com.bidly.chat.entity.ChatMessage.MessageType.MEETUP_ACCEPTED);
+            msg.setStatus(com.bidly.chat.entity.ChatMessage.MessageStatus.SENT);
+            msg.setContent("🤝 Meetup confirmed! Show OTP upon meeting to complete item handover.");
+            msg.setMetadata(String.format("{\"orderId\":\"%s\",\"eventType\":\"MEETUP_CONFIRMED\"}", saved.getId()));
+            chatMessageRepository.save(msg);
+            room.setLastMessageAt(Instant.now());
+            room.setUpdatedAt(Instant.now());
+            chatRoomRepository.save(room);
+
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("eventType", "MEETUP_CONFIRMED");
+            eventData.put("orderId", saved.getId());
+            messagingTemplate.convertAndSend("/topic/chats/" + room.getId(), (Object) eventData);
+        });
+
+        // Notify other party
+        com.bidly.user.entity.User otherParty = isBuyer ? saved.getSeller() : saved.getBuyer();
+        String confirmMeta = String.format(
+                "{\"orderId\":\"%s\",\"buyerId\":\"%s\",\"offerId\":\"%s\",\"buyerName\":\"%s\"}",
+                saved.getId(), saved.getBuyer().getId(), saved.getOffer() != null ? saved.getOffer().getId() : "", saved.getBuyer().getName());
+
+        notificationService.sendNotification(
+                otherParty,
+                com.bidly.notification.entity.Notification.NotificationType.MEETUP_SCHEDULED,
+                "Meetup Confirmed",
+                (isBuyer ? saved.getBuyer().getName() : saved.getSeller().getName()) + " confirmed the meetup schedule for " + saved.getListing().getTitle(),
+                saved.getListing(),
+                saved.getOffer(),
+                saved,
+                isBuyer ? "Mark As Sold" : "Show OTP",
+                "/chat/offer/" + saved.getListing().getId(),
+                saved.getId(),
+                confirmMeta
+        );
+
+        log.info("[MEETUP] Meetup confirmed for order {} by user {}", saved.getId(), currentUserId);
         return mapToSummaryDto(saved, currentUserId);
     }
 
@@ -371,12 +441,16 @@ public class OrderService {
         order.setDeliveredAt(Instant.now());
         Order saved = orderRepository.save(order);
 
-        // Credit seller funds in wallet
-        walletService.topUpFunds(
-                saved.getSeller().getId(),
-                saved.getAmount(),
-                "Direct sale payout for verified order #" + saved.getOrderNumber()
-        );
+        // Credit seller funds in wallet ONLY if this was an AUCTION (funds held in digital escrow)
+        if (order.getOrderSource() == Order.OrderSource.AUCTION) {
+            walletService.topUpFunds(
+                    saved.getSeller().getId(),
+                    saved.getAmount(),
+                    "Auction payout for verified order #" + saved.getOrderNumber()
+            );
+        } else {
+            log.info("[MARK_SOLD] Direct sale in-person order #{} completed without in-app wallet payout (payment exchanged physically)", saved.getOrderNumber());
+        }
 
         trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.DELIVERED, "Product Sold", "Handover completed and product marked as SOLD", Instant.now()));
 
@@ -713,6 +787,7 @@ public class OrderService {
         dto.setMeetupTime(o.getMeetupTime());
         dto.setMeetupOtp(o.getMeetupOtp());
         dto.setMeetupOtpVerified(o.getMeetupOtpVerified() != null ? o.getMeetupOtpVerified() : false);
+        dto.setMeetupConfirmed("MEETUP_CONFIRMED".equals(o.getClientActionId()) || Boolean.TRUE.equals(o.getMeetupOtpVerified()));
         if (o.getOffer() != null) {
             dto.setOfferId(o.getOffer().getId());
         }

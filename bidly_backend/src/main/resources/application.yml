@@ -2,6 +2,12 @@ spring:
   application:
     name: bidly-backend
 
+  # ─── Jackson / JSON Serialization ──────────────────────────
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
   # ─── Multipart File Uploads ─────────────────────────────────
   servlet:
     multipart:

@@ -78,17 +78,20 @@ public class ChatService {
                         .orElseThrow(() -> BidlyException.notFound("Offer not found: " + offerId));
                 buyerId = offer.getBuyer().getId();
             } else {
-                // Fallback to active room or latest offer for this listing
                 List<ChatRoom> rooms = roomRepo.findByListingId(listingId);
-                if (!rooms.isEmpty()) {
+                if (rooms.size() == 1) {
                     buyerId = rooms.get(0).getBuyerId();
-                } else {
+                } else if (rooms.isEmpty()) {
                     List<com.bidly.offer.entity.Offer> offers = offerRepo.findByListingIdOrderByCreatedAtDesc(listingId);
-                    if (!offers.isEmpty()) {
+                    if (offers.size() == 1) {
                         buyerId = offers.get(0).getBuyer().getId();
+                    } else if (offers.isEmpty()) {
+                        throw BidlyException.badRequest("No offers or active conversations for this listing");
                     } else {
-                        throw BidlyException.badRequest("Seller must specify buyerId or offerId to open chat");
+                        throw BidlyException.badRequest("Multiple offers exist. Please specify buyerId or offerId to open the correct chat.");
                     }
+                } else {
+                    throw BidlyException.badRequest("Multiple conversations exist. Please specify buyerId or offerId to open the correct chat.");
                 }
             }
         } else {

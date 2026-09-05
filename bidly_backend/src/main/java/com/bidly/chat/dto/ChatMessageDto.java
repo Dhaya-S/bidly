@@ -1,5 +1,6 @@
 package com.bidly.chat.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -14,10 +15,12 @@ public class ChatMessageDto {
     private BigDecimal offerAmount;
     private String type;
     private String status;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant readAt;
     private String mediaUrl;
     private String metadata;
     private boolean isMine;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant createdAt;
 
     public ChatMessageDto() {}

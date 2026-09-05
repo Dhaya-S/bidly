@@ -70,6 +70,14 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success("Meetup scheduled successfully", dto));
     }
 
+    @PostMapping("/{orderId}/confirm-meetup")
+    public ResponseEntity<ApiResponse<OrderSummaryDto>> confirmMeetup(
+            @PathVariable UUID orderId,
+            @AuthenticationPrincipal UUID currentUserId) {
+        OrderSummaryDto dto = orderService.confirmMeetup(orderId, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success("Meetup confirmed successfully", dto));
+    }
+
     @PostMapping("/{orderId}/courier-shipment")
     public ResponseEntity<ApiResponse<OrderSummaryDto>> createCourierShipment(
             @PathVariable UUID orderId,

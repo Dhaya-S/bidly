@@ -1,5 +1,6 @@
 package com.bidly.chat.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -11,6 +12,7 @@ public class ChatEventDto {
     private String userName;
     private ChatMessageDto message;
     private List<UUID> readMessageIds;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant readAt;
     private UUID offerId;
     private String offerStatus;
@@ -18,9 +20,12 @@ public class ChatEventDto {
     private Double counterAmount;
     private String meetupStatus;
     private String meetupLocation;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant meetupTime;
     private boolean isOnline;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant lastSeen;
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant timestamp = Instant.now();
 
     public ChatEventDto() {}

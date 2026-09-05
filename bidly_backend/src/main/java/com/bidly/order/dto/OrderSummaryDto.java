@@ -41,11 +41,15 @@ public class OrderSummaryDto {
     private Instant meetupTime;
     private String meetupOtp;
     private Boolean meetupOtpVerified;
+    private boolean isMeetupConfirmed;
     private UUID offerId;
     private boolean isSeller;
     private boolean isBuyer;
 
     public OrderSummaryDto() {}
+
+    public boolean isMeetupConfirmed() { return isMeetupConfirmed; }
+    public void setMeetupConfirmed(boolean isMeetupConfirmed) { this.isMeetupConfirmed = isMeetupConfirmed; }
 
     public String getOrderSource() { return orderSource; }
     public void setOrderSource(String orderSource) { this.orderSource = orderSource; }

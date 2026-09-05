@@ -217,6 +217,27 @@ public class OfferService {
             broadcastOfferEvent(room.getId(), saved.getId(), "COUNTERED", offer.getAmount().doubleValue(), req.getCounterAmount().doubleValue(), savedMsg, senderName);
         }
 
+        // Send persistent notification & real-time alert for Counter Offer
+        User recipient = isSeller ? offer.getBuyer() : offer.getSeller();
+        String counterSender = userRepository.findById(currentUserId).map(User::getName).orElse("User");
+        String counterMeta = String.format(
+                "{\"counterAmount\":%s,\"listingPrice\":%s,\"buyerName\":\"%s\",\"buyerId\":\"%s\",\"offerId\":\"%s\"}",
+                req.getCounterAmount(), offer.getListing().getPrice(), offer.getBuyer().getName(), offer.getBuyer().getId(), saved.getId());
+
+        notificationService.sendNotification(
+                recipient,
+                com.bidly.notification.entity.Notification.NotificationType.NEW_OFFER,
+                "Counter Offer Received",
+                counterSender + " sent a counter offer of ₹" + req.getCounterAmount().toBigInteger() + " on " + offer.getListing().getTitle(),
+                offer.getListing(),
+                saved,
+                null,
+                "View Offer",
+                "/chat/offer/" + offer.getListing().getId(),
+                saved.getId(),
+                counterMeta
+        );
+
         log.info("Counter offer of Rs. {} submitted on offer '{}'", req.getCounterAmount(), offerId);
         return mapToDto(saved, currentUserId);
     }
@@ -265,22 +286,27 @@ public class OfferService {
             broadcastOfferEvent(room.getId(), saved.getId(), saved.getStatus().name(), offer.getAmount().doubleValue(), null, savedMsg, senderName);
         }
 
-        if (isSeller) {
-            String metadataJson = req != null ? String.format("{\"reason\":\"%s\",\"note\":\"%s\"}", req.getReason(), req.getNote()) : null;
-            notificationService.sendNotification(
-                    offer.getBuyer(),
-                    com.bidly.notification.entity.Notification.NotificationType.OFFER_REJECTED,
-                    "Offer Declined",
-                    offer.getSeller().getName() + " declined your offer on " + offer.getListing().getTitle(),
-                    offer.getListing(),
-                    saved,
-                    null,
-                    "View Details",
-                    "/chat/offer/" + offer.getListing().getId(),
-                    saved.getId(),
-                    metadataJson
-            );
-        }
+        User rejectRecipient = isSeller ? offer.getBuyer() : offer.getSeller();
+        String rejectMeta = String.format(
+                "{\"reason\":\"%s\",\"note\":\"%s\",\"buyerId\":\"%s\",\"offerId\":\"%s\",\"buyerName\":\"%s\"}",
+                req != null && req.getReason() != null ? req.getReason() : "",
+                req != null && req.getNote() != null ? req.getNote() : "",
+                offer.getBuyer().getId(), saved.getId(), offer.getBuyer().getName());
+
+        notificationService.sendNotification(
+                rejectRecipient,
+                com.bidly.notification.entity.Notification.NotificationType.OFFER_REJECTED,
+                isSeller ? "Offer Declined" : "Offer Cancelled",
+                isSeller ? offer.getSeller().getName() + " declined your offer on " + offer.getListing().getTitle()
+                         : offer.getBuyer().getName() + " cancelled their offer on " + offer.getListing().getTitle(),
+                offer.getListing(),
+                saved,
+                null,
+                "View Details",
+                "/chat/offer/" + offer.getListing().getId(),
+                saved.getId(),
+                rejectMeta
+        );
 
         return mapToDto(saved, currentUserId);
     }
@@ -354,19 +380,28 @@ public class OfferService {
             broadcastOfferEvent(room.getId(), savedOffer.getId(), "ACCEPTED", offer.getAmount().doubleValue(), null, savedMsg, senderName);
         }
 
-        // Send persistent notification & real-time alert to Buyer
+        // Send persistent notification & real-time alert to the other party
+        User acceptRecipient = isSeller ? offer.getBuyer() : offer.getSeller();
+        String acceptTitle = "Offer Accepted!";
+        String acceptMsg = isSeller
+                ? offer.getSeller().getName() + " accepted your offer on " + listing.getTitle()
+                : offer.getBuyer().getName() + " accepted your counter-offer on " + listing.getTitle();
+        String acceptMeta = String.format(
+                "{\"orderId\":\"%s\",\"orderNumber\":\"%s\",\"buyerId\":\"%s\",\"offerId\":\"%s\",\"buyerName\":\"%s\"}",
+                order.getId(), order.getOrderNumber(), offer.getBuyer().getId(), savedOffer.getId(), offer.getBuyer().getName());
+
         notificationService.sendNotification(
-                offer.getBuyer(),
+                acceptRecipient,
                 com.bidly.notification.entity.Notification.NotificationType.OFFER_ACCEPTED,
-                "Offer Accepted!",
-                offer.getSeller().getName() + " accepted your offer on " + listing.getTitle(),
+                acceptTitle,
+                acceptMsg,
                 listing,
                 savedOffer,
                 order,
                 "View Details",
                 "/chat/offer/" + listing.getId(),
                 order.getId(),
-                String.format("{\"orderId\":\"%s\",\"orderNumber\":\"%s\"}", order.getId(), order.getOrderNumber())
+                acceptMeta
         );
 
         log.info("Offer '{}' accepted. Order '{}' created.", offerId, order.getOrderNumber());

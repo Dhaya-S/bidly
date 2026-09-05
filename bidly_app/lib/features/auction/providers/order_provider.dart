@@ -8,6 +8,8 @@ class OrderState {
   final OrderModel? order;
   final bool isSubmittingReview;
   final bool isReviewSuccess;
+  final bool isSubmittingReport;
+  final bool isReportSuccess;
 
   const OrderState({
     this.isLoading = false,
@@ -15,21 +17,28 @@ class OrderState {
     this.order,
     this.isSubmittingReview = false,
     this.isReviewSuccess = false,
+    this.isSubmittingReport = false,
+    this.isReportSuccess = false,
   });
 
   OrderState copyWith({
     bool? isLoading,
     String? errorMessage,
     OrderModel? order,
+    bool clearOrder = false,
     bool? isSubmittingReview,
     bool? isReviewSuccess,
+    bool? isSubmittingReport,
+    bool? isReportSuccess,
   }) {
     return OrderState(
       isLoading: isLoading ?? this.isLoading,
       errorMessage: errorMessage,
-      order: order ?? this.order,
+      order: clearOrder ? null : (order ?? this.order),
       isSubmittingReview: isSubmittingReview ?? this.isSubmittingReview,
       isReviewSuccess: isReviewSuccess ?? this.isReviewSuccess,
+      isSubmittingReport: isSubmittingReport ?? this.isSubmittingReport,
+      isReportSuccess: isReportSuccess ?? this.isReportSuccess,
     );
   }
 }
@@ -55,7 +64,12 @@ class OrderNotifier extends StateNotifier<OrderState> {
   }
 
   Future<void> fetchOrderByListing(String listingId) async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
+    final isDifferentListing = state.order?.listingId != listingId;
+    state = state.copyWith(
+      isLoading: true,
+      errorMessage: null,
+      clearOrder: isDifferentListing,
+    );
     try {
       final res = await _apiClient.get('/orders/listing/$listingId');
       if (res.data != null && res.data['success'] == true) {
@@ -195,6 +209,37 @@ class OrderNotifier extends StateNotifier<OrderState> {
       state = state.copyWith(isSubmittingReview: false);
     }
     return false;
+  }
+
+  Future<bool> submitReport({
+    required String orderId,
+    required String reason,
+    String? details,
+  }) async {
+    state = state.copyWith(isSubmittingReport: true, errorMessage: null);
+    try {
+      final res = await _apiClient.post('/reports', data: {
+        'orderId': orderId,
+        'reason': reason,
+        'details': details ?? '',
+      });
+      if (res.data != null && res.data['success'] == true) {
+        state = state.copyWith(isSubmittingReport: false, isReportSuccess: true);
+        return true;
+      } else {
+        state = state.copyWith(
+          isSubmittingReport: false,
+          errorMessage: res.data?['message']?.toString() ?? 'Failed to submit report',
+        );
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(
+        isSubmittingReport: false,
+        errorMessage: 'Network error submitting report',
+      );
+      return false;
+    }
   }
 }
 

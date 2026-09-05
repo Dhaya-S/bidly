@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
 
@@ -44,6 +47,7 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
   late final TextEditingController _timeController;
   late final TextEditingController _locationController;
   bool _isSubmitting = false;
+  bool _isFetchingLocation = false;
 
   @override
   void initState() {
@@ -55,6 +59,218 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
     _timeController = TextEditingController(text: DateFormat('hh:00 a').format(nextHour));
     _locationController = TextEditingController(
       text: widget.initialLocation ?? '',
+    );
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    setState(() => _isFetchingLocation = true);
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enable device location / GPS')),
+          );
+        }
+        setState(() => _isFetchingLocation = false);
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Location permission denied')),
+            );
+          }
+          setState(() => _isFetchingLocation = false);
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permissions permanently denied. Enable in device settings.')),
+          );
+        }
+        setState(() => _isFetchingLocation = false);
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final parts = [
+          if (p.name != null && p.name!.isNotEmpty && p.name != p.street) p.name,
+          if (p.street != null && p.street!.isNotEmpty) p.street,
+          if (p.subLocality != null && p.subLocality!.isNotEmpty) p.subLocality,
+          if (p.locality != null && p.locality!.isNotEmpty) p.locality,
+        ].where((e) => e != null && e.isNotEmpty).join(', ');
+
+        if (mounted) {
+          setState(() {
+            _locationController.text = parts.isNotEmpty ? parts : 'Near ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+            _isFetchingLocation = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _locationController.text = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+            _isFetchingLocation = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isFetchingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error getting location: $e')),
+        );
+      }
+    }
+  }
+
+  void _openGoogleMapPicker() {
+    LatLng pickedPosition = const LatLng(13.0827, 80.2707); // Default Chennai
+    String pickedAddress = _locationController.text.isNotEmpty ? _locationController.text : 'Selected Location';
+    bool isReverseGeocoding = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Container(
+            height: MediaQuery.of(sheetCtx).size.height * 0.75,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pick Meetup on Google Maps',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700),
+                          ),
+                          Text(
+                            'Pan or tap map to set meeting point',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(sheetCtx),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: pickedPosition,
+                          zoom: 15,
+                        ),
+                        myLocationEnabled: true,
+                        myLocationButtonEnabled: true,
+                        onCameraMove: (camPos) {
+                          pickedPosition = camPos.target;
+                        },
+                        onCameraIdle: () async {
+                          setModalState(() => isReverseGeocoding = true);
+                          try {
+                            final placemarks = await placemarkFromCoordinates(
+                              pickedPosition.latitude,
+                              pickedPosition.longitude,
+                            );
+                            if (placemarks.isNotEmpty) {
+                              final p = placemarks.first;
+                              final parts = [
+                                if (p.name != null && p.name!.isNotEmpty && p.name != p.street) p.name,
+                                if (p.street != null && p.street!.isNotEmpty) p.street,
+                                if (p.subLocality != null && p.subLocality!.isNotEmpty) p.subLocality,
+                                if (p.locality != null && p.locality!.isNotEmpty) p.locality,
+                              ].where((e) => e != null && e.isNotEmpty).join(', ');
+                              pickedAddress = parts.isNotEmpty ? parts : 'Selected Location';
+                            }
+                          } catch (_) {}
+                          setModalState(() => isReverseGeocoding = false);
+                        },
+                      ),
+                      const IgnorePointer(
+                        child: Icon(Icons.location_pin, color: Color(0xFFE11D48), size: 44),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  color: Colors.white,
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_rounded, color: Color(0xFF004E54), size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: isReverseGeocoding
+                                ? const Text('Resolving address...', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF94A3B8)))
+                                : Text(
+                                    pickedAddress,
+                                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 46,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              _locationController.text = pickedAddress;
+                            });
+                            Navigator.pop(sheetCtx);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF004E54),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text('Confirm Location', style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -343,15 +559,38 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
             const SizedBox(height: 16),
 
             // Location
-            const Text(
-              'LOCATION',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textSecondary,
-                letterSpacing: 0.5,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'LOCATION',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textSecondary,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: _fetchCurrentLocation,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.my_location_rounded, size: 14, color: Color(0xFF004E54)),
+                      const SizedBox(width: 4),
+                      Text(
+                        _isFetchingLocation ? 'Locating...' : 'GPS Auto-Detect',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF004E54),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             TextField(
@@ -359,6 +598,20 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
               decoration: InputDecoration(
                 hintText: 'Enter agreed meetup location (e.g. Mall, Metro Station)',
                 prefixIcon: const Icon(Icons.location_on_outlined, size: 20, color: Color(0xFF004E54)),
+                suffixIcon: _isFetchingLocation
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF004E54)),
+                        ),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.map_outlined, color: Color(0xFF004E54), size: 20),
+                        tooltip: 'Pick on Google Maps',
+                        onPressed: _openGoogleMapPicker,
+                      ),
                 filled: true,
                 fillColor: const Color(0xFFF9FBFA),
                 border: OutlineInputBorder(
@@ -375,7 +628,43 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _fetchCurrentLocation,
+                    icon: const Icon(Icons.my_location_rounded, size: 14, color: Color(0xFF004E54)),
+                    label: const Text(
+                      'Use My Location',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF004E54)),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      side: const BorderSide(color: Color(0xFF004E54), width: 1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openGoogleMapPicker,
+                    icon: const Icon(Icons.pin_drop_rounded, size: 14, color: Color(0xFF004E54)),
+                    label: const Text(
+                      'Pick on Map',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF004E54)),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      side: const BorderSide(color: Color(0xFF004E54), width: 1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
 
             // Confirm Meetup Button
             SizedBox(

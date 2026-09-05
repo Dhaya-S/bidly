@@ -6,6 +6,7 @@ import '../../../core/constants/app_theme.dart';
 import '../models/auction_model.dart';
 import '../providers/auction_provider.dart';
 import '../providers/order_provider.dart';
+import '../../chat/widgets/schedule_meetup_bottom_sheet.dart';
 
 class AuctionWonScreen extends ConsumerStatefulWidget {
   final String listingId;
@@ -21,6 +22,8 @@ class AuctionWonScreen extends ConsumerStatefulWidget {
 
 class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
   final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+  int _selectedDeliveryMethod = 0; // 0: Courier, 1: In-Person Meetup
+  bool _methodInitialized = false;
 
   @override
   void initState() {
@@ -38,6 +41,13 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
 
     final details = auctionState.auctionDetails;
     final order = orderState.order;
+
+    if (!_methodInitialized && order != null) {
+      if (order.isMeetup) {
+        _selectedDeliveryMethod = 1;
+      }
+      _methodInitialized = true;
+    }
 
     final wonPrice = order?.wonAmount ?? details?.currentHighestBid ?? 0.0;
     final productTitle = order?.productTitle ?? details?.title ?? '';
@@ -201,70 +211,203 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'What Happens Next?',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                      Text(
+                        _selectedDeliveryMethod == 0 ? 'What Happens Next? (Courier)' : 'What Happens Next? (Meetup)',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
                       ),
                       const SizedBox(height: 14),
-                      _buildNextStep('1', 'Payment Moved to Escrow', 'Your reserved funds are now safely held in Escrow', isDone: true),
-                      _buildNextStep('2', 'Chat with Seller', 'Coordinate dispatch or address verification directly', isCurrent: true),
-                      _buildNextStep('3', 'Seller Ships Product', 'Track package via courier tracking number'),
-                      _buildNextStep('4', 'Confirm Delivery', 'Inspect product and release escrow payout to seller', isLast: true),
+                      if (_selectedDeliveryMethod == 0) ...[
+                        _buildNextStep('1', 'Payment Moved to Escrow', 'Your reserved funds are now safely held in Escrow', isDone: true),
+                        _buildNextStep('2', 'Chat with Seller', 'Coordinate dispatch or address verification directly', isCurrent: true),
+                        _buildNextStep('3', 'Seller Ships Product', 'Track package via courier tracking number'),
+                        _buildNextStep('4', 'Confirm Delivery', 'Inspect product and release escrow payout to seller', isLast: true),
+                      ] else ...[
+                        _buildNextStep('1', 'Payment Moved to Escrow', 'Your reserved funds are now safely held in Escrow', isDone: true),
+                        _buildNextStep('2', 'Schedule Meetup', 'Pick a safe public spot and time with the seller', isCurrent: true),
+                        _buildNextStep('3', 'Inspect & Verify OTP', 'Handover item and share your 6-digit visual OTP'),
+                        _buildNextStep('4', 'Confirm Delivery', 'Escrow payment released safely to seller', isLast: true),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                // 5. Delivery Address Card
+                // 5. Select Delivery Method Card (Courier vs In-Person Meetup)
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.3)),
+                    border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.2)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'Select Delivery Method',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.location_on_outlined, color: Color(0xFF004E54), size: 18),
-                              SizedBox(width: 6),
-                              Text('Delivery Address', style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, fontWeight: FontWeight.w700)),
-                            ],
-                          ),
-                          GestureDetector(
-                            onTap: () => _showDeliveryAddressModal(context, order),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF004E54),
-                                borderRadius: BorderRadius.circular(8),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedDeliveryMethod = 0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: _selectedDeliveryMethod == 0
+                                      ? const Color(0xFF004E54)
+                                      : const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.local_shipping_outlined,
+                                      size: 20,
+                                      color: _selectedDeliveryMethod == 0 ? Colors.white : const Color(0xFF475569),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Courier Delivery',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _selectedDeliveryMethod == 0 ? Colors.white : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.edit_outlined, color: Colors.white, size: 12),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    (order != null && order.deliveryAddressLine.isNotEmpty) ? 'Change' : 'Add Address',
-                                    style: const TextStyle(fontFamily: 'Poppins', color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700),
-                                  ),
-                                ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedDeliveryMethod = 1),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: _selectedDeliveryMethod == 1
+                                      ? const Color(0xFF004E54)
+                                      : const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.handshake_outlined,
+                                      size: 20,
+                                      color: _selectedDeliveryMethod == 1 ? Colors.white : const Color(0xFF475569),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'In-Person Meetup',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _selectedDeliveryMethod == 1 ? Colors.white : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        (order != null && order.deliveryAddressLine.isNotEmpty)
-                            ? '${order.deliveryAddressFullName} • ${order.deliveryAddressLine}, ${order.deliveryAddressCity} - ${order.deliveryAddressPincode} (${order.deliveryAddressPhone})'
-                            : 'Add your delivery address so the seller knows where to ship via courier.',
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
-                      ),
+                      const SizedBox(height: 14),
+
+                      if (_selectedDeliveryMethod == 0) ...[
+                        // Courier Delivery Details
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Shipping Address',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700),
+                            ),
+                            GestureDetector(
+                              onTap: () => _showDeliveryAddressModal(context, order),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF004E54),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.edit_outlined, color: Colors.white, size: 12),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      (order != null && order.deliveryAddressLine.isNotEmpty) ? 'Change' : 'Add Address',
+                                      style: const TextStyle(fontFamily: 'Poppins', color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          (order != null && order.deliveryAddressLine.isNotEmpty)
+                              ? '${order.deliveryAddressFullName} • ${order.deliveryAddressLine}, ${order.deliveryAddressCity} - ${order.deliveryAddressPincode} (${order.deliveryAddressPhone})'
+                              : 'Add your delivery address so the seller knows where to ship via courier.',
+                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                      ] else ...[
+                        // In-Person Meetup Details
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Meetup Schedule',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700),
+                            ),
+                            if (order != null)
+                              GestureDetector(
+                                onTap: () => ScheduleMeetupBottomSheet.show(
+                                  context,
+                                  orderId: order.id,
+                                  onMeetupScheduled: () => ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId),
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF004E54),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.calendar_today_outlined, color: Colors.white, size: 12),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        order.meetupLocation != null ? 'Reschedule' : 'Schedule',
+                                        style: const TextStyle(fontFamily: 'Poppins', color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          order?.meetupLocation != null
+                              ? 'Location: ${order!.meetupLocation}\nOTP verification will be required upon meeting.'
+                              : 'Coordinate a safe public meetup location with the seller. Inspect product before OTP release.',
+                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                      ],
                     ],
                   ),
                 ),

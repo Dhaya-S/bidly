@@ -55,6 +55,21 @@ class OfferModel {
 
   double get currentEffectiveAmount => counterAmount != null && counterAmount! > 0 ? counterAmount! : amount;
 
+  static DateTime? _parseDate(dynamic raw) {
+    if (raw == null) return null;
+    final str = raw.toString().trim();
+    if (str.isEmpty) return null;
+    if (str.contains('T') || (str.length >= 19 && str[10] == ' ')) {
+      final isoStr = str.contains('T') ? str : str.replaceFirst(' ', 'T');
+      final hasTz = isoStr.endsWith('Z') || isoStr.contains('+') || RegExp(r'-\d{2}:\d{2}$').hasMatch(isoStr);
+      final normalized = hasTz ? isoStr : '${isoStr}Z';
+      final dt = DateTime.tryParse(normalized);
+      if (dt != null) return dt.toLocal();
+    }
+    final dt = DateTime.tryParse(str);
+    return dt?.isUtc == true ? dt?.toLocal() : dt;
+  }
+
   factory OfferModel.fromJson(Map<String, dynamic> json) {
     return OfferModel(
       id: json['id']?.toString() ?? '',
@@ -74,9 +89,9 @@ class OfferModel {
       isSeller: json['seller'] == true || json['isSeller'] == true,
       orderId: json['orderId']?.toString(),
       meetupLocation: json['meetupLocation']?.toString(),
-      meetupTime: json['meetupTime'] != null ? DateTime.tryParse(json['meetupTime'].toString()) : null,
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
-      expiresAt: json['expiresAt'] != null ? DateTime.parse(json['expiresAt']) : null,
+      meetupTime: _parseDate(json['meetupTime']),
+      createdAt: _parseDate(json['createdAt']) ?? DateTime.now(),
+      expiresAt: _parseDate(json['expiresAt']),
     );
   }
 }

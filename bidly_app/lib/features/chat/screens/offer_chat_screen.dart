@@ -1,12 +1,17 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:photo_view/photo_view.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../explore/models/listing_model.dart';
 import '../models/chat_message_model.dart';
+import '../models/chat_room_model.dart';
 import '../models/offer_model.dart';
 import '../providers/chat_provider.dart';
 import '../providers/offer_provider.dart';
@@ -16,21 +21,34 @@ import '../widgets/buyer_show_otp_modal.dart';
 import 'seller_otp_verification_screen.dart';
 import '../../auction/models/auction_model.dart';
 import '../../auction/providers/order_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class OfferChatScreen extends ConsumerStatefulWidget {
   final String listingId;
   final ListingModel? listing;
   final String? buyerId;
+  final String? sellerId;
+  final bool? isSellerView;
   final String? offerId;
   final String? buyerName;
+  final String? roomId;
+  final String? productTitle;
+  final double? productPrice;
+  final String? listingImageUrl;
 
   const OfferChatScreen({
     super.key,
     required this.listingId,
     this.listing,
     this.buyerId,
+    this.sellerId,
+    this.isSellerView,
     this.offerId,
     this.buyerName,
+    this.roomId,
+    this.productTitle,
+    this.productPrice,
+    this.listingImageUrl,
   });
 
   @override
@@ -47,7 +65,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
   @override
   void initState() {
     super.initState();
-    _offerAmount = widget.listing?.price ?? 0.0;
+    _offerAmount = widget.productPrice ?? widget.listing?.price ?? 0.0;
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initChat();
@@ -84,12 +102,38 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
   Future<void> _initChat() async {
     final chatNotifier = ref.read(chatRoomNotifierProvider.notifier);
     final offerNotifier = ref.read(offerProvider.notifier);
-    final room = await chatNotifier.initRoomForListing(
+
+    final Future<ChatRoomModel?> roomFuture = (widget.roomId != null && widget.roomId!.isNotEmpty)
+        ? chatNotifier.initRoomById(
+            widget.roomId!,
+            listingId: widget.listingId,
+            initialPrice: _offerAmount,
+            buyerId: widget.buyerId,
+            buyerName: widget.buyerName,
+            sellerId: widget.sellerId ?? widget.listing?.sellerId,
+            sellerName: widget.listing?.sellerName,
+            offerId: widget.offerId,
+            listingTitle: widget.productTitle,
+            listingPrice: widget.productPrice,
+            listingImageUrl: widget.listingImageUrl,
+          )
+        : chatNotifier.initRoomForListing(
+            widget.listingId,
+            _offerAmount,
+            buyerId: widget.buyerId,
+            offerId: widget.offerId,
+          );
+
+    final Future<void> offerFuture = offerNotifier.fetchLatestOffer(
       widget.listingId,
-      _offerAmount,
       buyerId: widget.buyerId,
-      offerId: widget.offerId,
     );
+
+    final Future<void> orderFuture = ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+
+    final results = await Future.wait([roomFuture, offerFuture, orderFuture]);
+    final room = results[0] as ChatRoomModel?;
+
     if ((_offerAmount == 0.0 || _offerAmount == 100.0) && room != null && room.listingPrice > 0) {
       if (mounted) {
         setState(() {
@@ -97,11 +141,6 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
         });
       }
     }
-    await offerNotifier.fetchLatestOffer(
-      widget.listingId,
-      buyerId: widget.buyerId ?? room?.buyerId,
-    );
-    ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
     if (mounted) {
       _scrollToBottom();
     }
@@ -257,217 +296,103 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     );
   }
 
-  void _showAcceptDialog(OfferModel offer) {
-    String selectedDelivery = 'IN_PERSON_MEETUP';
-    final locationCtrl = TextEditingController(text: 'T. Nagar, Chennai');
-    final parentContext = context;
-
-    showModalBottomSheet(
+  Future<void> _showAcceptDialog(OfferModel offer) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-            left: 20,
-            right: 20,
-            top: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Accept Offer & Select Delivery',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Agreed amount: ₹${offer.currentEffectiveAmount.toInt()}',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF64748B)),
-              ),
-              const SizedBox(height: 16),
-
-              // Option A: In-Person Meetup
-              GestureDetector(
-                onTap: () => setSheetState(() => selectedDelivery = 'IN_PERSON_MEETUP'),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: selectedDelivery == 'IN_PERSON_MEETUP' ? const Color(0xFFE6F4F1) : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: selectedDelivery == 'IN_PERSON_MEETUP' ? AppTheme.primary : const Color(0xFFE2E8F0),
-                      width: selectedDelivery == 'IN_PERSON_MEETUP' ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.handshake_outlined,
-                        color: selectedDelivery == 'IN_PERSON_MEETUP' ? AppTheme.primary : const Color(0xFF64748B),
-                        size: 24,
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'In-Person Meetup (Instant)',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
-                            ),
-                            Text(
-                              'Inspect item in person, verify OTP code on pickup.',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (selectedDelivery == 'IN_PERSON_MEETUP')
-                        const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Option B: Courier
-              GestureDetector(
-                onTap: () => setSheetState(() => selectedDelivery = 'COURIER'),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: selectedDelivery == 'COURIER' ? const Color(0xFFE6F4F1) : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: selectedDelivery == 'COURIER' ? AppTheme.primary : const Color(0xFFE2E8F0),
-                      width: selectedDelivery == 'COURIER' ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.local_shipping_outlined,
-                        color: selectedDelivery == 'COURIER' ? AppTheme.primary : const Color(0xFF64748B),
-                        size: 24,
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Courier Dispatch',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
-                            ),
-                            Text(
-                              'Doorstep delivery with tracked timeline and buyer protection.',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (selectedDelivery == 'COURIER')
-                        const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20),
-                    ],
-                  ),
-                ),
-              ),
-
-              if (selectedDelivery == 'IN_PERSON_MEETUP') ...[
-                const SizedBox(height: 14),
-                const Text(
-                  'Meetup Location:',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
-                ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: locationCtrl,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.location_on_outlined, color: AppTheme.primary, size: 18),
-                    hintText: 'e.g. Metro Station, Coffee Shop, Mall',
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 22),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    final orderId = await ref.read(offerProvider.notifier).acceptOffer(
-                          offerId: offer.id,
-                          deliveryType: selectedDelivery,
-                          meetupLocation: locationCtrl.text.trim(),
-                        );
-                    if (!mounted || !parentContext.mounted) return;
-                    if (orderId != null) {
-                      await ref.read(chatRoomNotifierProvider.notifier).sendTextMessage('🎉 Offer accepted! Order created.');
-                      await ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId);
-                      final roomId = ref.read(chatRoomNotifierProvider).room?.id;
-                      if (roomId != null) {
-                        await ref.read(chatRoomNotifierProvider.notifier).loadMessages(roomId, isSilent: true);
-                      }
-                      _scrollToBottom();
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Offer accepted! Schedule meetup details below.'),
-                          backgroundColor: Color(0xFF004E54),
-                        ),
-                      );
-                      if (selectedDelivery == 'IN_PERSON_MEETUP') {
-                        ScheduleMeetupBottomSheet.show(
-                          context,
-                          orderId: orderId,
-                          initialLocation: locationCtrl.text.trim(),
-                          onMeetupScheduled: () async {
-                            await ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId);
-                            final rId = ref.read(chatRoomNotifierProvider).room?.id;
-                            if (rId != null) {
-                              await ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
-                            }
-                            _scrollToBottom();
-                          },
-                        );
-                      }
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  child: Text(
-                    'Confirm Acceptance: ₹${offer.currentEffectiveAmount.toInt()}',
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ],
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Accept Offer',
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: AppTheme.textPrimary,
           ),
         ),
+        content: Text(
+          'Accept offer of ₹${offer.currentEffectiveAmount.toInt()} from ${offer.buyerName} and continue chat?',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 14,
+            color: Color(0xFF475569),
+            height: 1.4,
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF004E54),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text(
+              'Accept',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
+
+    if (confirmed != true || !mounted) return;
+
+    final defaultLocation = offer.meetupLocation ??
+        (widget.listing?.locality?.isNotEmpty == true ? widget.listing!.locality! : 'Agreed Meeting Point');
+
+    final orderId = await ref.read(offerProvider.notifier).acceptOffer(
+          offerId: offer.id,
+          deliveryType: 'IN_PERSON_MEETUP',
+          meetupLocation: defaultLocation,
+        );
+
+    if (!mounted) return;
+
+    if (orderId != null) {
+      await ref.read(chatRoomNotifierProvider.notifier).sendTextMessage(
+            '🎉 Offer accepted! Let\'s chat and meetup.',
+          );
+      await ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId, buyerId: widget.buyerId ?? offer.buyerId);
+      await ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+      final roomId = ref.read(chatRoomNotifierProvider).room?.id;
+      if (roomId != null) {
+        await ref.read(chatRoomNotifierProvider.notifier).loadMessages(roomId, isSilent: true);
+      }
+      _scrollToBottom();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Offer accepted! You can continue chatting or tap [Schedule] anytime.'),
+          backgroundColor: Color(0xFF004E54),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not accept offer. Please try again.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+    }
   }
 
   void _showScheduleDialog() {
@@ -605,20 +530,67 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     );
   }
 
+  bool _computeIsSeller({
+    required String currentUserId,
+    required ChatRoomModel? room,
+    required OfferModel? activeOffer,
+  }) {
+    // 1. Explicit override passed from caller (e.g. MessagesListScreen tab)
+    if (widget.isSellerView != null) {
+      return widget.isSellerView!;
+    }
+    // 2. Explicit sellerId passed from caller
+    if (widget.sellerId != null && widget.sellerId!.isNotEmpty && currentUserId.isNotEmpty) {
+      if (widget.sellerId == currentUserId) return true;
+    }
+    // 3. Explicit buyerId passed from caller
+    if (widget.buyerId != null && widget.buyerId!.isNotEmpty && currentUserId.isNotEmpty) {
+      if (widget.buyerId == currentUserId) return false;
+      // In a 1-on-1 direct buy chat, if buyer is someone else, the viewer is the seller!
+      return true;
+    }
+    // 4. Listing sellerId
+    final listingSellerId = widget.listing?.sellerId;
+    if (listingSellerId != null && listingSellerId.isNotEmpty && currentUserId.isNotEmpty) {
+      if (listingSellerId == currentUserId) return true;
+      return false;
+    }
+    // 5. Room sellerId / buyerId
+    if (room != null && currentUserId.isNotEmpty) {
+      if (room.sellerId.isNotEmpty && room.sellerId == currentUserId) return true;
+      if (room.buyerId.isNotEmpty && room.buyerId == currentUserId) return false;
+    }
+    // 6. Active offer (strictly verified for this listingId)
+    if (activeOffer != null && activeOffer.listingId == widget.listingId) {
+      return activeOffer.isSeller;
+    }
+    // Fallback default
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatRoomNotifierProvider);
     final offerState = ref.watch(offerProvider);
-    final activeOffer = offerState.activeOffer;
+    final activeOffer = (offerState.activeOffer?.listingId == widget.listingId)
+        ? offerState.activeOffer
+        : null;
     final currentUserId = ref.watch(authProvider).user?.id ?? '';
     final orderState = ref.watch(orderProvider);
-    final order = orderState.order;
+    final order = (orderState.order?.listingId == widget.listingId)
+        ? orderState.order
+        : null;
     final room = chatState.room;
     final listing = widget.listing;
 
-    final isSeller = (activeOffer != null && activeOffer.isSeller) ||
-        (currentUserId.isNotEmpty &&
-            (room?.sellerId == currentUserId || widget.listing?.sellerId == currentUserId));
+    final isAuction = (listing?.sellingMethod.toUpperCase() == 'AUCTION') ||
+        (order != null && order.orderSource.toUpperCase() == 'AUCTION');
+
+    final isSeller = _computeIsSeller(
+      currentUserId: currentUserId,
+      room: room,
+      activeOffer: activeOffer,
+    );
 
     final peerName = isSeller
         ? (room?.buyerName ?? widget.buyerName ?? activeOffer?.buyerName ?? 'Buyer')
@@ -626,9 +598,13 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     final peerInitials = peerName.isNotEmpty
         ? peerName.substring(0, peerName.length > 2 ? 2 : peerName.length).toUpperCase()
         : (isSeller ? 'BU' : 'SE');
-    final listingTitle = room?.listingTitle ?? listing?.title ?? 'Product';
-    final listingPrice = room?.listingPrice != 0.0 ? (room?.listingPrice ?? 0.0) : (listing?.price ?? 0.0);
-    final listingImg = room?.listingImageUrl ?? listing?.primaryImageUrl;
+    final listingTitle = room?.listingTitle ?? widget.productTitle ?? listing?.title ?? 'Product';
+    final listingPrice = (room?.listingPrice != null && room!.listingPrice > 0)
+        ? room.listingPrice
+        : ((widget.productPrice != null && widget.productPrice! > 0)
+            ? widget.productPrice!
+            : (listing?.price ?? 0.0));
+    final listingImg = room?.listingImageUrl ?? widget.listingImageUrl ?? listing?.primaryImageUrl;
 
     final effOrderId = activeOffer?.orderId ?? order?.id;
 
@@ -683,17 +659,17 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
-                  Row(
+                  const Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.circle,
                         color: Color(0xFF10B981),
                         size: 7,
                       ),
-                      const SizedBox(width: 4),
+                      SizedBox(width: 4),
                       Text(
-                        isSeller ? 'Online now · Buyer' : 'Online now',
-                        style: const TextStyle(
+                        'Online now',
+                        style: TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 12,
                           color: Color(0xFF10B981),
@@ -768,131 +744,92 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 3),
-                          if (order != null || (listing?.sellingMethod.toUpperCase() == 'AUCTION') || (activeOffer?.isAccepted ?? false))
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF004E54),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'WON',
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white,
-                                    ),
-                                  ),
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 6,
+                            runSpacing: 2,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF004E54),
+                                  borderRadius: BorderRadius.circular(4),
                                 ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '₹${(order?.totalAmount ?? order?.wonAmount ?? activeOffer?.currentEffectiveAmount ?? listingPrice).toInt()}',
+                                child: Text(
+                                  isAuction
+                                      ? 'WON'
+                                      : ((activeOffer?.isAccepted ?? false) || order != null)
+                                          ? 'ACCEPTED'
+                                          : 'OFFER',
                                   style: const TextStyle(
                                     fontFamily: 'Poppins',
-                                    fontSize: 13,
+                                    fontSize: 10,
                                     fontWeight: FontWeight.w800,
-                                    color: AppTheme.textPrimary,
+                                    color: Colors.white,
                                   ),
                                 ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFE8F6F6),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        (order?.isMeetupDelivery ?? true) ? Icons.handshake_outlined : Icons.local_shipping_outlined,
-                                        size: 11,
-                                        color: const Color(0xFF004E54),
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        (order?.isMeetupDelivery ?? true) ? 'In-Person' : 'Courier',
-                                        style: const TextStyle(
-                                          fontFamily: 'Poppins',
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF004E54),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            Text(
-                              'Asking: ₹${listingPrice.toInt()}',
-                              style: const TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF004E54),
                               ),
-                            ),
+                              Text(
+                                '₹${(order?.totalAmount ?? order?.wonAmount ?? activeOffer?.currentEffectiveAmount ?? (listingPrice > 0 ? listingPrice : (room?.listingPrice ?? 0.0))).toInt()}',
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE6F7F8),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.location_on_outlined, size: 11, color: Color(0xFF004E54)),
+                                    SizedBox(width: 2),
+                                    Text(
+                                      'Meetup',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF004E54),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
                     const SizedBox(width: 8),
 
-                    // Schedule Meetup button (Available for both Buyer and Seller)
-                    Container(
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEDF7F7),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFC4E8E8), width: 1.2),
-                      ),
-                      child: TextButton.icon(
-                        onPressed: () {
-                          if (effOrderId != null) {
-                            ScheduleMeetupBottomSheet.show(
-                              context,
-                              orderId: effOrderId,
-                              initialLocation: activeOffer?.meetupLocation,
-                              onMeetupScheduled: () {
-                                ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId, buyerId: widget.buyerId ?? room?.buyerId);
-                                ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
-                                final rId = ref.read(chatRoomNotifierProvider).room?.id;
-                                if (rId != null) {
-                                  ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
-                                }
-                              },
-                            );
-                          } else {
-                            _showScheduleDialog();
-                          }
-                        },
-                        icon: const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF004E54)),
-                        label: const Text(
-                          'Schedule',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF004E54),
-                          ),
-                        ),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
+                    // Mini Product Action Button:
+                    // For Direct Buy: Always [ Schedule ] meetup
+                    // For Auction: [ Delivery ] if method not chosen, [ Track ] if courier, [ Schedule ] if meetup
+                    _buildMiniProductActionButton(
+                      isAuction: isAuction,
+                      isSeller: isSeller,
+                      order: order,
+                      effOrderId: effOrderId,
+                      activeOffer: activeOffer,
+                      room: room,
                     ),
                   ],
                 ),
               ),
 
-              // Notice Banners (Matching Image 1 & 2)
-              _buildBuyerProtectionBanner(isSeller, order),
+              // Notice Banners
+              _buildBuyerProtectionBanner(
+                isSeller: isSeller,
+                order: order,
+                isAuction: isAuction,
+                activeOffer: activeOffer,
+              ),
 
               // Message List
               Expanded(
@@ -1022,25 +959,27 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               // Bottom Action / Negotiation Bar (Matching Image 1 Screen 2 & Image 3 Screen 4 & Screen 5)
               _buildBottomOfferBar(activeOffer, listingPrice, offerState),
 
-              // Text Input Bar (Image 1 & 2)
+              // Text Input Bar (Matching Image 1 & Image 2)
               Container(
                 color: Colors.white,
-                padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
                 child: SafeArea(
                   top: false,
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.photo_library_outlined, color: Color(0xFF94A3B8), size: 24),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Select image from gallery')),
-                          );
-                        },
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      GestureDetector(
+                        onTap: () => _showAttachmentOptions(effOrderId, activeOffer, isAuction),
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF004E54),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.add, color: Colors.white, size: 22),
+                        ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Container(
                           height: 44,
@@ -1070,17 +1009,25 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       GestureDetector(
                         onTap: _sendText,
                         child: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF004E54),
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: _textController.text.trim().isNotEmpty
+                                ? const Color(0xFF004E54)
+                                : const Color(0xFFE2E8F0),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                          child: Icon(
+                            Icons.send_rounded,
+                            color: _textController.text.trim().isNotEmpty
+                                ? Colors.white
+                                : const Color(0xFF94A3B8),
+                            size: 18,
+                          ),
                         ),
                       ),
                     ],
@@ -1112,7 +1059,298 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     );
   }
 
-  Widget _buildBuyerProtectionBanner(bool isSeller, OrderModel? order) {
+  Widget _buildMiniProductActionButton({
+    required bool isAuction,
+    required bool isSeller,
+    required OrderModel? order,
+    required String? effOrderId,
+    required OfferModel? activeOffer,
+    required ChatRoomModel? room,
+  }) {
+    // For Direct Buy: Schedule option ONLY for seller; Show OTP for buyer ONLY after meetup is confirmed
+    if (!isAuction) {
+      if (isSeller) {
+        return Container(
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEDF7F7),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFC4E8E8), width: 1.2),
+          ),
+          child: TextButton.icon(
+            onPressed: () {
+              if (effOrderId != null) {
+                ScheduleMeetupBottomSheet.show(
+                  context,
+                  orderId: effOrderId,
+                  initialLocation: activeOffer?.meetupLocation,
+                  onMeetupScheduled: () {
+                    ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId, buyerId: widget.buyerId ?? room?.buyerId);
+                    ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                    final rId = ref.read(chatRoomNotifierProvider).room?.id;
+                    if (rId != null) {
+                      ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
+                    }
+                  },
+                );
+              } else if (activeOffer != null && activeOffer.isPending) {
+                _showAcceptDialog(activeOffer);
+              } else {
+                _showScheduleDialog();
+              }
+            },
+            icon: const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF004E54)),
+            label: const Text(
+              'Schedule',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF004E54),
+              ),
+            ),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        );
+      } else {
+        // Buyer chat screen: Show OTP button matching Image 1
+        final canShowOtp = effOrderId != null &&
+            (order?.isMeetupConfirmed == true ||
+                activeOffer?.isAccepted == true ||
+                (activeOffer?.meetupTime != null && activeOffer?.meetupLocation != null) ||
+                (order?.meetupTime != null && order?.meetupLocation != null));
+
+        if (canShowOtp) {
+          return Container(
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFF004E54),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF004E54).withValues(alpha: 0.25),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: TextButton.icon(
+              onPressed: () {
+                BuyerShowOtpModal.show(context, orderId: effOrderId);
+              },
+              icon: const Icon(Icons.key_rounded, size: 14, color: Colors.white),
+              label: const Text(
+                'Show OTP',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      }
+    }
+
+    // For Auction: Check delivery method status
+    final hasMeetup = order != null && order.isMeetup;
+    final hasCourier = order != null && order.deliveryAddressLine.isNotEmpty && !order.isMeetup;
+
+    if (hasMeetup) {
+      if (isSeller) {
+        return Container(
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEDF7F7),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFC4E8E8), width: 1.2),
+          ),
+          child: TextButton.icon(
+            onPressed: () {
+              ScheduleMeetupBottomSheet.show(
+                context,
+                orderId: order.id,
+                initialLocation: order.meetupLocation,
+                onMeetupScheduled: () {
+                  ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                  final rId = ref.read(chatRoomNotifierProvider).room?.id;
+                  if (rId != null) {
+                    ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
+                  }
+                },
+              );
+            },
+            icon: const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF004E54)),
+            label: const Text(
+              'Schedule',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF004E54),
+              ),
+            ),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        );
+      } else {
+        // Buyer chat screen: Show OTP button for auction meetup
+        if (effOrderId != null) {
+          return Container(
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFF004E54),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF004E54).withValues(alpha: 0.25),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: TextButton.icon(
+              onPressed: () {
+                BuyerShowOtpModal.show(context, orderId: effOrderId);
+              },
+              icon: const Icon(Icons.key_rounded, size: 16, color: Colors.white),
+              label: const Text(
+                'Show OTP',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      }
+    }
+
+    if (hasCourier) {
+      return Container(
+        height: 34,
+        decoration: BoxDecoration(
+          color: const Color(0xFFE0F2FE),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFBAE6FD), width: 1.2),
+        ),
+        child: TextButton.icon(
+          onPressed: () {
+            context.push('/orders/${order.id}/track');
+          },
+          icon: const Icon(Icons.local_shipping_outlined, size: 14, color: Color(0xFF0284C7)),
+          label: const Text(
+            'Track',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0284C7),
+            ),
+          ),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      );
+    }
+
+    // Delivery method not selected yet for auction
+    if (!isSeller) {
+      return Container(
+        height: 34,
+        decoration: BoxDecoration(
+          color: const Color(0xFF004E54),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: TextButton.icon(
+          onPressed: () => _showAuctionDeliveryMethodSelector(order),
+          icon: const Icon(Icons.local_shipping_outlined, size: 14, color: Colors.white),
+          label: const Text(
+            'Delivery',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      );
+    }
+
+    // Seller view awaiting buyer's selection
+    return Container(
+      height: 34,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.hourglass_empty_rounded, size: 14, color: Color(0xFF64748B)),
+            SizedBox(width: 4),
+            Text(
+              'Awaiting Buyer',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBuyerProtectionBanner({
+    required bool isSeller,
+    required OrderModel? order,
+    required bool isAuction,
+    required OfferModel? activeOffer,
+  }) {
+    final bool isDirectBuy = !isAuction;
+    final bool hasMeetupScheduled = order?.meetupTime != null ||
+        (activeOffer?.meetupLocation != null && activeOffer!.meetupLocation!.isNotEmpty);
+
     return Column(
       children: [
         Container(
@@ -1123,14 +1361,16 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFFC4E8E8), width: 1),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Icon(Icons.shield_outlined, size: 18, color: Color(0xFF004E54)),
-              SizedBox(width: 10),
+              const Icon(Icons.shield_outlined, size: 18, color: Color(0xFF004E54)),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'BIDLY Buyer Protection is active for this transaction.',
-                  style: TextStyle(
+                  isDirectBuy
+                      ? 'Direct Buy • In-person meetup only with OTP verification.'
+                      : 'BIDLY Buyer Protection is active for this auction.',
+                  style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1141,37 +1381,562 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
             ],
           ),
         ),
-        if (isSeller && (order != null || widget.listing?.sellingMethod.toUpperCase() == 'AUCTION'))
+
+        // For Direct Buy: Informative status only (NEVER the auction banner!)
+        if (isDirectBuy && (activeOffer?.isAccepted == true || order != null))
           Container(
             margin: const EdgeInsets.fromLTRB(16, 2, 16, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFFE2ECED),
-              borderRadius: BorderRadius.circular(16),
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF86EFAC)),
             ),
-            child: const Text(
-              'BIDLY has notified the buyer they won the auction. Delivery method selection in progress.',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF004E54),
-                height: 1.3,
-              ),
-              textAlign: TextAlign.center,
+            child: Row(
+              children: [
+                const Icon(Icons.verified_rounded, size: 16, color: Color(0xFF16A34A)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    hasMeetupScheduled
+                        ? 'Meetup scheduled! Meet at agreed spot and verify visual OTP.'
+                        : 'Offer accepted! Tap [Schedule] to set meetup location and time.',
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF166534),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+
+        // For Auction: Delivery method selection notices
+        if (isAuction) ...[
+          if (isSeller && (order == null || (!order.isMeetup && order.deliveryAddressLine.isEmpty)))
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE2ECED),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Text(
+                'BIDLY has notified the buyer they won the auction. Delivery method selection in progress.',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF004E54),
+                  height: 1.3,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          if (!isSeller && (order == null || (!order.isMeetup && order.deliveryAddressLine.isEmpty)))
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.local_shipping_outlined, color: Color(0xFF1D4ED8), size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'You Won! Select Delivery Method',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1E3A8A),
+                          ),
+                        ),
+                        Text(
+                          'Choose Courier Delivery or In-Person Meetup',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11,
+                            color: Color(0xFF3B82F6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _showAuctionDeliveryMethodSelector(order),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1D4ED8),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      'Choose',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     );
+  }
+
+  void _showAuctionDeliveryMethodSelector(OrderModel? order) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Select Delivery Method',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Choose how you would like to receive your won auction item:',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 18),
+
+              // Option 1: Doorstep Courier Delivery
+              InkWell(
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showDeliveryAddressModal(order);
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0F2FE),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.local_shipping_outlined, color: Color(0xFF0284C7), size: 24),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Doorstep Courier Delivery',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Provide address. Seller ships via courier with live tracking.',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Color(0xFF94A3B8)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Option 2: In-Person Meetup
+              InkWell(
+                onTap: () {
+                  Navigator.pop(ctx);
+                  final effOrderId = order?.id ?? ref.read(orderProvider).order?.id;
+                  if (effOrderId != null) {
+                    ScheduleMeetupBottomSheet.show(
+                      context,
+                      orderId: effOrderId,
+                      onMeetupScheduled: () {
+                        ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                        final rId = ref.read(chatRoomNotifierProvider).room?.id;
+                        if (rId != null) {
+                          ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
+                        }
+                      },
+                    );
+                  } else {
+                    _showScheduleDialog();
+                  }
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F6F6),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.handshake_outlined, color: Color(0xFF004E54), size: 24),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'In-Person Meetup',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Inspect item face-to-face. Verified via 6-digit visual OTP handover.',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Color(0xFF94A3B8)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDeliveryAddressModal(OrderModel? order) {
+    final effOrder = order ?? ref.read(orderProvider).order;
+    if (effOrder == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order not ready yet. Please wait a moment.')),
+      );
+      return;
+    }
+    final nameCtrl = TextEditingController(text: effOrder.deliveryAddressFullName);
+    final phoneCtrl = TextEditingController(text: effOrder.deliveryAddressPhone);
+    final addressCtrl = TextEditingController(text: effOrder.deliveryAddressLine);
+    final cityCtrl = TextEditingController(text: effOrder.deliveryAddressCity);
+    final pincodeCtrl = TextEditingController(text: effOrder.deliveryAddressPincode);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Courier Delivery Address',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Seller will ship your won auction item to this address.',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Recipient Full Name',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Contact Phone Number',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: addressCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Street / Flat / Locality',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: cityCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'City',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: pincodeCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'PIN Code',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (addressCtrl.text.trim().isEmpty) return;
+                    Navigator.pop(ctx);
+                    final success = await ref.read(orderProvider.notifier).updateDeliveryAddress(
+                          effOrder.id,
+                          fullName: nameCtrl.text.trim(),
+                          phone: phoneCtrl.text.trim(),
+                          addressLine: addressCtrl.text.trim(),
+                          city: cityCtrl.text.trim(),
+                          pincode: pincodeCtrl.text.trim(),
+                        );
+                    if (success) {
+                      await ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                      final rId = ref.read(chatRoomNotifierProvider).room?.id;
+                      if (rId != null) {
+                        await ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
+                      }
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Delivery address saved and shared with seller!'),
+                            backgroundColor: Color(0xFF004E54),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Save & Confirm Courier', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAttachmentOptions(String? effOrderId, OfferModel? activeOffer, bool isAuction) {
+    final currentUserId = ref.read(authProvider).user?.id ?? '';
+    final room = ref.read(chatRoomNotifierProvider).room;
+    final isSeller = _computeIsSeller(
+      currentUserId: currentUserId,
+      room: room,
+      activeOffer: activeOffer,
+    );
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSeller)
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE8F6F6),
+                    child: Icon(Icons.calendar_today_outlined, color: Color(0xFF004E54)),
+                  ),
+                  title: const Text('Schedule Meetup', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Pick meetup time and map location', style: TextStyle(fontFamily: 'Poppins', fontSize: 12)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (effOrderId != null) {
+                      ScheduleMeetupBottomSheet.show(
+                        context,
+                        orderId: effOrderId,
+                        initialLocation: activeOffer?.meetupLocation,
+                        onMeetupScheduled: () {
+                          final currentRoom = ref.read(chatRoomNotifierProvider).room;
+                          ref.read(offerProvider.notifier).fetchLatestOffer(widget.listingId, buyerId: widget.buyerId ?? currentRoom?.buyerId);
+                          ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                          final rId = currentRoom?.id;
+                          if (rId != null) {
+                            ref.read(chatRoomNotifierProvider.notifier).loadMessages(rId, isSilent: true);
+                          }
+                        },
+                      );
+                    } else if (activeOffer != null && activeOffer.isPending) {
+                      _showAcceptDialog(activeOffer);
+                    } else {
+                      _showScheduleDialog();
+                    }
+                  },
+                ),
+              if (isAuction) // ONLY for Auctions! Never for Direct Buy!
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE8F6F6),
+                    child: Icon(Icons.local_shipping_outlined, color: Color(0xFF004E54)),
+                  ),
+                  title: const Text('Select Delivery Method', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Choose Courier delivery or In-Person Meetup', style: TextStyle(fontFamily: 'Poppins', fontSize: 12)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    final currentOrder = ref.read(orderProvider).order;
+                    _showAuctionDeliveryMethodSelector(currentOrder);
+                  },
+                ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFE8F6F6),
+                  child: Icon(Icons.photo_library_outlined, color: Color(0xFF004E54)),
+                ),
+                title: const Text('Choose from Gallery', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+                subtitle: const Text('Send photo from your library', style: TextStyle(fontFamily: 'Poppins', fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndSendImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFE8F6F6),
+                  child: Icon(Icons.camera_alt_outlined, color: Color(0xFF004E54)),
+                ),
+                title: const Text('Take Photo', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+                subtitle: const Text('Capture and send photo using camera', style: TextStyle(fontFamily: 'Poppins', fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndSendImage(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndSendImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 1920,
+        maxHeight: 1920,
+      );
+
+      if (pickedFile == null) return;
+
+      final notifier = ref.read(chatRoomNotifierProvider.notifier);
+      await notifier.sendImageMessage(filePath: pickedFile.path);
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('[CHAT] Error picking/sending image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick image: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildBottomOfferBar(
       OfferModel? activeOffer, double listingPrice, OfferState offerState) {
     final currentUserId = ref.watch(authProvider).user?.id ?? '';
     final room = ref.watch(chatRoomNotifierProvider).room;
-    final isSeller = (activeOffer != null && activeOffer.isSeller) ||
-        (currentUserId.isNotEmpty &&
-            (room?.sellerId == currentUserId || widget.listing?.sellerId == currentUserId));
+    final order = ref.watch(orderProvider).order;
+    final isSeller = _computeIsSeller(
+      currentUserId: currentUserId,
+      room: room,
+      activeOffer: activeOffer,
+    );
     final isBuyer = !isSeller;
 
     // Seller view: ONLY show seller actions if an active offer is pending or accepted
@@ -1194,7 +1959,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 46,
+                  height: 48,
                   child: OutlinedButton(
                     onPressed: () => RejectOfferBottomSheet.show(
                       context,
@@ -1206,14 +1971,14 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(14)),
                       backgroundColor: Colors.white,
                     ),
                     child: const Text(
                       'Reject Offer',
                       style: TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 14,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFFEF4444),
                       ),
@@ -1224,7 +1989,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: SizedBox(
-                  height: 46,
+                  height: 48,
                   child: ElevatedButton(
                     onPressed: () => _showAcceptDialog(activeOffer),
                     style: ElevatedButton.styleFrom(
@@ -1232,13 +1997,13 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(14)),
                     ),
                     child: const Text(
                       'Accept Offer',
                       style: TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 14,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1252,6 +2017,9 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
       // Case 2: Seller with accepted offer
       if (activeOffer != null && activeOffer.isAccepted) {
+        final isConfirmed = order?.isMeetupConfirmed == true ||
+            (activeOffer.orderId != null && _confirmedMeetupOrderIds.contains(activeOffer.orderId));
+
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
@@ -1268,7 +2036,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 46,
+                  height: 48,
                   child: OutlinedButton(
                     onPressed: () => RejectOfferBottomSheet.show(
                       context,
@@ -1280,14 +2048,14 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(14)),
                       backgroundColor: Colors.white,
                     ),
                     child: const Text(
                       'Reject Offer',
                       style: TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 14,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFFEF4444),
                       ),
@@ -1298,14 +2066,24 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: SizedBox(
-                  height: 46,
+                  height: 48,
                   child: ElevatedButton(
                     onPressed: () {
-                      if (activeOffer.orderId != null) {
+                      if (!isConfirmed) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Awaiting buyer to confirm meetup before marking as sold.'),
+                            backgroundColor: Color(0xFF004E54),
+                          ),
+                        );
+                        return;
+                      }
+                      final effectiveOrderId = activeOffer.orderId ?? order?.id;
+                      if (effectiveOrderId != null) {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (ctx) => SellerOtpVerificationScreen(
-                              orderId: activeOffer.orderId!,
+                              orderId: effectiveOrderId,
                               buyerName: activeOffer.buyerName,
                               meetupLocation: activeOffer.meetupLocation,
                               productTitle: activeOffer.listingTitle ?? 'Product',
@@ -1317,17 +2095,17 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF004E54),
-                      foregroundColor: Colors.white,
+                      backgroundColor: isConfirmed ? const Color(0xFF004E54) : const Color(0xFFCBD5E1),
+                      foregroundColor: isConfirmed ? Colors.white : const Color(0xFF64748B),
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(14)),
                     ),
                     child: const Text(
                       'Mark as sold',
                       style: TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 14,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1526,6 +2304,15 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
   Widget _buildMeetingScheduledCard(
       ChatMessageModel msg, OfferModel? activeOffer, bool isMe, String timeStr, String peerInitials) {
+    final currentUserId = ref.watch(authProvider).user?.id ?? '';
+    final room = ref.watch(chatRoomNotifierProvider).room;
+    final order = ref.watch(orderProvider).order;
+    final isSeller = _computeIsSeller(
+      currentUserId: currentUserId,
+      room: room,
+      activeOffer: activeOffer,
+    );
+
     String date = '';
     String time = '';
     String location = '';
@@ -1561,20 +2348,19 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
       time = DateFormat('hh.mma').format(msg.createdAt);
     }
     if (location.isEmpty) {
-      location = 'T.Nagar, Chennai';
+      location = order?.meetupLocation ?? (widget.listing?.locality?.isNotEmpty == true ? widget.listing!.locality! : 'Agreed Meeting Point');
     }
 
-    final currentUserId = ref.watch(authProvider).user?.id ?? '';
-    final room = ref.watch(chatRoomNotifierProvider).room;
-    final order = ref.watch(orderProvider).order;
-    final isSeller = (activeOffer != null && activeOffer.isSeller) ||
-        (currentUserId.isNotEmpty &&
-            (room?.sellerId == currentUserId || widget.listing?.sellerId == currentUserId));
     final orderId = activeOffer?.orderId ?? order?.id ?? meta['orderId']?.toString();
-
+    final hasMeetupAccepted = ref.watch(chatRoomNotifierProvider).messages.any(
+      (m) => m.type == 'MEETUP_ACCEPTED' ||
+             (m.parsedMetadata?['eventType'] == 'MEETUP_CONFIRMED') ||
+             (m.content != null && m.content!.contains('Meetup confirmed'))
+    );
     final isConfirmed = order?.isMeetupConfirmed == true ||
         (orderId != null && _confirmedMeetupOrderIds.contains(orderId)) ||
-        msg.type == 'MEETUP_ACCEPTED';
+        msg.type == 'MEETUP_ACCEPTED' ||
+        hasMeetupAccepted;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1590,7 +2376,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               border: Border.all(color: const Color(0xFF004E54), width: 1.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -1599,32 +2385,38 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Dark Teal Header: Meeting Scheduled (Image 2)
+                // Dark Teal Header: Meeting Scheduled / Confirmed
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: const BoxDecoration(
                     color: Color(0xFF004E54),
                     borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                   ),
-                  child: Center(
-                    child: Text(
-                      isConfirmed ? 'Meeting Confirmed' : 'Meeting Scheduled',
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                  child: Row(
+                    children: [
+                      Icon(
+                        isConfirmed ? Icons.check_circle_rounded : Icons.event_available_rounded,
                         color: Colors.white,
+                        size: 18,
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isConfirmed ? 'Meeting Confirmed' : 'Meeting Scheduled',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Date Row with chip (Image 2)
+                      // Date Row with dark teal badge (Image 1 & 2)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -1681,28 +2473,67 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       ),
                       const SizedBox(height: 10),
 
-                      // Location Row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Location',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 13,
-                              color: Color(0xFF94A3B8),
-                            ),
+                      // Location Row (Touch to navigate in Google Maps!)
+                      InkWell(
+                        onTap: () async {
+                          if (location.isNotEmpty && location != 'Agreed Meeting Point') {
+                            final query = Uri.encodeComponent(location);
+                            final mapUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
+                            try {
+                              if (await canLaunchUrl(mapUrl)) {
+                                await launchUrl(mapUrl, mode: LaunchMode.externalApplication);
+                              } else {
+                                await launchUrl(mapUrl);
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Could not open map: $e')),
+                                );
+                              }
+                            }
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Row(
+                                children: [
+                                  Text(
+                                    'Location',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 13,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Icon(Icons.open_in_new_rounded, size: 13, color: Color(0xFF004E54)),
+                                ],
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  location,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF004E54),
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: Color(0xFF004E54),
+                                  ),
+                                  textAlign: TextAlign.end,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            location,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 16),
 
@@ -2467,7 +3298,50 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
       );
     }
 
-    if (msg.isOffer) {
+    if (msg.isOfferAccepted ||
+        msg.type == 'OFFER_ACCEPTED' ||
+        (msg.content != null && (msg.content!.contains("Offer accepted") || msg.content!.contains("ACCEPTED!")))) {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        alignment: Alignment.center,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          constraints: const BoxConstraints(maxWidth: 320),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F6F6),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF004E54).withValues(alpha: 0.2), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('🎉', style: TextStyle(fontSize: 16)),
+              SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  "Offer accepted! Let's chat and meetup.",
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF004E54),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (msg.isOffer && (msg.offerAmount ?? 0) > 0) {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -2534,6 +3408,43 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
     if (msg.isMeetup || (msg.content != null && msg.content!.contains('Meeting Scheduled'))) {
       return _buildMeetingScheduledCard(msg, activeOffer, isMe, timeStr, peerInitials);
+    }
+
+    if (msg.isMeetupAccepted || (msg.content != null && msg.content!.contains('Meetup confirmed! Show OTP'))) {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        alignment: Alignment.center,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFDCFCE7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF86EFAC)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle_rounded, color: Color(0xFF15803D), size: 16),
+              SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '🤝 Meetup confirmed! Tap "Show OTP" on the card above upon meeting.',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF166534),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (msg.isImage || (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty)) {
+      return _buildImageBubble(msg, isMe, peerInitials);
     }
 
     if (isMe) {
@@ -2648,6 +3559,384 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     }
   }
 
+  bool _isLocalFile(String path) {
+    if (path.isEmpty) return false;
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('chat/') ||
+        trimmed.startsWith('listings/') ||
+        trimmed.startsWith('users/') ||
+        trimmed.startsWith('media/')) {
+      return false;
+    }
+    try {
+      return File(trimmed).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Widget _buildImageBubble(ChatMessageModel msg, bool isMe, String peerInitials) {
+    final timeStr = msg.formattedTime;
+    final mediaUrl = msg.mediaUrl ?? '';
+    final isLocal = _isLocalFile(mediaUrl);
+    final resolvedUrl = isLocal ? mediaUrl : ApiClient.resolveMediaUrl(mediaUrl);
+
+    final borderRadius = BorderRadius.only(
+      topLeft: const Radius.circular(18),
+      topRight: const Radius.circular(18),
+      bottomLeft: Radius.circular(isMe ? 18 : 4),
+      bottomRight: Radius.circular(isMe ? 4 : 18),
+    );
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: () {
+              if (msg.isFailed) {
+                if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+                  ref.read(chatRoomNotifierProvider.notifier).sendImageMessage(
+                        filePath: msg.mediaUrl!,
+                        caption: msg.content,
+                        retryClientMessageId: msg.clientMessageId,
+                      );
+                }
+              } else if (mediaUrl.isNotEmpty) {
+                _openFullScreenViewer(msg);
+              }
+            },
+            child: ClipRRect(
+              borderRadius: borderRadius,
+              child: Container(
+                width: 250,
+                height: 280,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: borderRadius,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Image rendering (Local instant file or Cached Remote CDN)
+                    if (isLocal)
+                      Image.file(
+                        File(mediaUrl),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _buildImageErrorWidget(),
+                      )
+                    else
+                      CachedNetworkImage(
+                        imageUrl: resolvedUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: const Color(0xFFEDF2F7),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF004E54),
+                              ),
+                            ),
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => _buildImageErrorWidget(),
+                      ),
+
+                    // Optimistic uploading progress overlay (Instagram-style)
+                    if (msg.isSending)
+                      Container(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 34,
+                                height: 34,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Sending...',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    // Failed overlay with retry
+                    if (msg.isFailed)
+                      Container(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        padding: const EdgeInsets.all(12),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.refresh_rounded, color: Colors.white, size: 22),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Upload failed\nTap to retry',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    // Gradient overlay with timestamp and ticks
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.72),
+                            ],
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            if (msg.content != null &&
+                                msg.content!.isNotEmpty &&
+                                msg.content != 'Sent an image')
+                              Expanded(
+                                child: Text(
+                                  msg.content!,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 12,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              )
+                            else
+                              const Spacer(),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  timeStr,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 10.5,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                if (isMe) ...[
+                                  const SizedBox(width: 4),
+                                  _buildImageStatusIcon(msg),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (!isMe) ...[
+            const SizedBox(height: 3),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor: const Color(0xFF004E54),
+                  child: Text(
+                    peerInitials,
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 9,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  timeStr,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 10.5,
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImageStatusIcon(ChatMessageModel msg) {
+    if (msg.isSending) {
+      return const SizedBox(
+        width: 10,
+        height: 10,
+        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+      );
+    }
+    if (msg.isFailed) {
+      return const Icon(Icons.error_outline, size: 13, color: Color(0xFFEF4444));
+    }
+    if (msg.isRead) {
+      return const Icon(Icons.done_all, size: 14, color: Color(0xFF5EEAD4));
+    }
+    if (msg.status.toUpperCase() == 'DELIVERED') {
+      return const Icon(Icons.done_all, size: 14, color: Colors.white70);
+    }
+    return const Icon(Icons.done, size: 13, color: Colors.white70);
+  }
+
+  Widget _buildImageErrorWidget() {
+    return Container(
+      color: const Color(0xFFE2E8F0),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.broken_image_outlined, color: Color(0xFF94A3B8), size: 36),
+            SizedBox(height: 4),
+            Text(
+              'Image unavailable',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openFullScreenViewer(ChatMessageModel msg) {
+    final mediaUrl = msg.mediaUrl ?? '';
+    final isLocal = _isLocalFile(mediaUrl);
+    final resolvedUrl = isLocal ? mediaUrl : ApiClient.resolveMediaUrl(mediaUrl);
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierDismissible: true,
+        pageBuilder: (context, _, __) {
+          return Scaffold(
+            backgroundColor: Colors.black,
+            appBar: AppBar(
+              backgroundColor: Colors.black.withValues(alpha: 0.7),
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              title: Text(
+                msg.senderName ?? 'Photo',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              actions: [
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 16),
+                    child: Text(
+                      msg.formattedTime,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            body: Center(
+              child: PhotoView(
+                imageProvider: isLocal
+                    ? FileImage(File(resolvedUrl)) as ImageProvider
+                    : CachedNetworkImageProvider(resolvedUrl),
+                minScale: PhotoViewComputedScale.contained,
+                maxScale: PhotoViewComputedScale.covered * 2.5,
+                backgroundDecoration: const BoxDecoration(color: Colors.black),
+                loadingBuilder: (context, event) => const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+                errorBuilder: (context, error, stackTrace) => const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.broken_image, color: Colors.white54, size: 48),
+                      SizedBox(height: 8),
+                      Text('Failed to load image', style: TextStyle(color: Colors.white70)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildStatusIcon(ChatMessageModel msg) {
     if (msg.isSending) {
       return const SizedBox(
@@ -2659,7 +3948,13 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
     if (msg.isFailed) {
       return GestureDetector(
         onTap: () {
-          if (msg.content != null) {
+          if (msg.isImage && msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+            ref.read(chatRoomNotifierProvider.notifier).sendImageMessage(
+                  filePath: msg.mediaUrl!,
+                  caption: msg.content,
+                  retryClientMessageId: msg.clientMessageId,
+                );
+          } else if (msg.content != null) {
             ref.read(chatRoomNotifierProvider.notifier).sendTextMessage(
                   msg.content!,
                   retryClientMessageId: msg.clientMessageId,

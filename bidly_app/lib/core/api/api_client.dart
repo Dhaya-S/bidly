@@ -122,7 +122,13 @@ class ApiClient {
       return trimmed;
     }
 
-    // Direct HTTP/HTTPS URLs (including Cloudflare R2 Presigned URLs)
+    // Rewrite Cloudflare r2.dev URLs to use the backend streaming endpoint (bypassing 401 R2 dev protection)
+    if (trimmed.contains('.r2.dev/')) {
+      final objectPath = trimmed.substring(trimmed.indexOf('.r2.dev/') + 8);
+      return '$_baseUrl/media/file/$objectPath';
+    }
+
+    // Direct HTTP/HTTPS URLs (including external CDNs)
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return trimmed;
     }

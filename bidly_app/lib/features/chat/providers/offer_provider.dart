@@ -39,7 +39,12 @@ class OfferNotifier extends StateNotifier<OfferState> {
   OfferNotifier(this._apiClient) : super(const OfferState());
 
   Future<void> fetchLatestOffer(String listingId, {String? buyerId}) async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
+    final isDifferentListing = state.activeOffer?.listingId != listingId;
+    state = state.copyWith(
+      isLoading: true,
+      errorMessage: null,
+      clearActiveOffer: isDifferentListing,
+    );
     try {
       final query = buyerId != null ? '?buyerId=$buyerId' : '';
       final response = await _apiClient.dio.get('/listings/$listingId/offers/latest$query');

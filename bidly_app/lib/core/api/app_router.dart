@@ -190,6 +190,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           String? buyerId = state.uri.queryParameters['buyerId'];
           String? offerId = state.uri.queryParameters['offerId'];
           String? buyerName = state.uri.queryParameters['buyerName'];
+          String? roomId = state.uri.queryParameters['roomId'];
+          String? productTitle;
+          double? productPrice;
+          String? listingImageUrl;
+          String? sellerId;
+          bool? isSellerView;
 
           if (state.extra is ListingModel) {
             listing = state.extra as ListingModel;
@@ -199,14 +205,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             buyerId ??= map['buyerId'] as String?;
             offerId ??= map['offerId'] as String?;
             buyerName ??= map['buyerName'] as String?;
+            roomId ??= map['roomId'] as String?;
+            productTitle = map['productTitle'] as String?;
+            productPrice = (map['productPrice'] is num) ? (map['productPrice'] as num).toDouble() : null;
+            listingImageUrl = map['listingImageUrl'] as String?;
+            sellerId = map['sellerId'] as String?;
+            isSellerView = map['isSeller'] as bool? ?? map['isSellerView'] as bool?;
+          }
+
+          sellerId ??= state.uri.queryParameters['sellerId'] ?? listing?.sellerId;
+          if (state.uri.queryParameters['isSeller'] != null) {
+            isSellerView ??= state.uri.queryParameters['isSeller'] == 'true';
           }
 
           return OfferChatScreen(
             listingId: id,
             listing: listing,
             buyerId: buyerId,
+            sellerId: sellerId,
+            isSellerView: isSellerView,
             offerId: offerId,
             buyerName: buyerName,
+            roomId: roomId,
+            productTitle: productTitle,
+            productPrice: productPrice,
+            listingImageUrl: listingImageUrl,
           );
         },
       ),

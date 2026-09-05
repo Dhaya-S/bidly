@@ -30,6 +30,13 @@ public class ReviewController {
         return ResponseEntity.ok(ApiResponse.success("Review submitted successfully", review));
     }
 
+    @GetMapping("/order/{orderId}")
+    public ResponseEntity<ApiResponse<ReviewDto>> getOrderReview(
+            @PathVariable UUID orderId) {
+        ReviewDto review = reviewService.getReviewByOrderId(orderId);
+        return ResponseEntity.ok(ApiResponse.success(review));
+    }
+
     @GetMapping("/seller/{sellerId}")
     public ResponseEntity<ApiResponse<List<ReviewDto>>> getSellerReviews(
             @PathVariable UUID sellerId) {

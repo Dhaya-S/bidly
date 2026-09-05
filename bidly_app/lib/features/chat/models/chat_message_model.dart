@@ -13,6 +13,7 @@ class ChatMessageModel {
   final String status; // SENDING, SENT, DELIVERED, READ, FAILED
   final DateTime? readAt;
   final String? mediaUrl;
+  final String? localPath;
   final String? metadata;
   final bool isMine;
   final DateTime createdAt;
@@ -29,14 +30,19 @@ class ChatMessageModel {
     this.status = 'SENT',
     this.readAt,
     this.mediaUrl,
+    this.localPath,
     this.metadata,
     this.isMine = false,
     required this.createdAt,
   });
 
-  bool get isOffer => type.toUpperCase().startsWith('OFFER');
+  bool get isOffer => type.toUpperCase() == 'OFFER' || type.toUpperCase() == 'OFFER_PENDING';
+  bool get isOfferAccepted => type.toUpperCase() == 'OFFER_ACCEPTED';
+  bool get isOfferCountered => type.toUpperCase() == 'OFFER_COUNTERED';
+  bool get isMeetup => type.toUpperCase() == 'MEETUP_REQUEST' || type.toUpperCase() == 'MEETUP';
+  bool get isMeetupRequest => type.toUpperCase() == 'MEETUP_REQUEST';
+  bool get isMeetupAccepted => type.toUpperCase() == 'MEETUP_ACCEPTED';
   bool get isQuickReply => type.toUpperCase() == 'QUICK_REPLY';
-  bool get isMeetup => type.toUpperCase().startsWith('MEETUP');
   bool get isSystem => type.toUpperCase() == 'SYSTEM' || type.toUpperCase().contains('UPDATE');
   bool get isImage => type.toUpperCase() == 'IMAGE';
   bool get isSending => status.toUpperCase() == 'SENDING';

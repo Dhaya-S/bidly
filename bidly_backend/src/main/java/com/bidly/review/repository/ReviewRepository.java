@@ -11,6 +11,7 @@ import java.util.UUID;
 
 @Repository
 public interface ReviewRepository extends JpaRepository<Review, UUID> {
+    @EntityGraph(attributePaths = {"reviewer", "photos"})
     Optional<Review> findByOrderId(UUID orderId);
 
     @EntityGraph(attributePaths = {"reviewer", "photos"})

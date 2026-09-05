@@ -35,7 +35,8 @@ public class SecurityConfig {
             "/media/**",
             "/communities/**",
             "/ws/**",
-            "/actuator/health"
+            "/actuator/health",
+            "/reviews/seller/**"
     };
 
     @Bean

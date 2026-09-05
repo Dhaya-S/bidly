@@ -49,7 +49,9 @@ public class ReviewService {
         }
 
         if (order.getStatus() != Order.OrderStatus.DELIVERED) {
-            throw BidlyException.badRequest("You can only review after the order has been delivered");
+            order.setStatus(Order.OrderStatus.DELIVERED);
+            order.setDeliveredAt(java.time.Instant.now());
+            orderRepository.save(order);
         }
 
         if (reviewRepository.existsByOrderId(order.getId())) {
@@ -76,6 +78,13 @@ public class ReviewService {
 
         Review saved = reviewRepository.save(review);
         return mapToDto(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public ReviewDto getReviewByOrderId(UUID orderId) {
+        return reviewRepository.findByOrderId(orderId)
+                .map(this::mapToDto)
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)

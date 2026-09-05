@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../auth/models/auth_state.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../posts/providers/posts_provider.dart';
 import '../../posts/widgets/post_card.dart';
+import '../../profile/providers/notifications_provider.dart';
 import '../providers/reels_provider.dart';
 import '../widgets/reel_player_card.dart';
 
@@ -68,6 +71,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
     final isHomeVisible = selectedNavIndex == 0;
     final liveLocation = ref.watch(liveLocationProvider);
     final locationText = liveLocation.displayText;
+    final notifState = ref.watch(notificationsProvider);
 
     final isFeedTab = reelsState.activeTab == 0;
 
@@ -254,56 +258,73 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
                           ),
                           const SizedBox(width: 8),
 
-                          // Notification Bell with Badge 3
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Container(
-                                width: 38,
-                                height: 38,
-                                decoration: BoxDecoration(
-                                  color: isFeedTab
-                                      ? const Color(0xFF1E232A).withValues(alpha: 0.85)
-                                      : AppTheme.surfaceVariant,
-                                  shape: BoxShape.circle,
-                                  border: isFeedTab
-                                      ? Border.all(color: Colors.white.withValues(alpha: 0.15))
-                                      : null,
-                                ),
-                                child: Icon(
-                                  Icons.notifications_none_rounded,
-                                  color: isFeedTab ? Colors.white : AppTheme.textPrimary,
-                                  size: 20,
-                                ),
-                              ),
-                              Positioned(
-                                top: -2,
-                                right: -2,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFEF4444),
+                          // Notification Bell with dynamic badge and navigation
+                          GestureDetector(
+                            onTap: () async {
+                              ReelsControllerManager().pauseAll();
+                              await context.push(AppRoutes.notifications);
+                              if (context.mounted) {
+                                final isFeedTab = ref.read(reelsProvider).activeTab == 0;
+                                final selectedNavIndex = ref.read(selectedNavIndexProvider);
+                                if (selectedNavIndex == 0 && isFeedTab) {
+                                  ReelsControllerManager().resumeCurrent();
+                                }
+                              }
+                            },
+                            behavior: HitTestBehavior.opaque,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: isFeedTab
+                                        ? const Color(0xFF1E232A).withValues(alpha: 0.85)
+                                        : AppTheme.surfaceVariant,
                                     shape: BoxShape.circle,
+                                    border: isFeedTab
+                                        ? Border.all(color: Colors.white.withValues(alpha: 0.15))
+                                        : null,
                                   ),
-                                  constraints: const BoxConstraints(
-                                    minWidth: 16,
-                                    minHeight: 16,
+                                  child: Icon(
+                                    Icons.notifications_none_rounded,
+                                    color: isFeedTab ? Colors.white : AppTheme.textPrimary,
+                                    size: 20,
                                   ),
-                                  child: const Center(
-                                    child: Text(
-                                      '3',
-                                      style: TextStyle(
-                                        fontFamily: 'Poppins',
-                                        color: Colors.white,
-                                        fontSize: 9.5,
-                                        fontWeight: FontWeight.w700,
-                                        height: 1.0,
+                                ),
+                                if (notifState.unreadCount > 0)
+                                  Positioned(
+                                    top: -2,
+                                    right: -2,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEF4444),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 16,
+                                        minHeight: 16,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          notifState.unreadCount > 99
+                                              ? '99+'
+                                              : '${notifState.unreadCount}',
+                                          style: const TextStyle(
+                                            fontFamily: 'Poppins',
+                                            color: Colors.white,
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.0,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ],
                       ),

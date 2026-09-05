@@ -103,7 +103,10 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
   /// Initialize chat for a given listing (creates or joins room) with optional buyerId/offerId isolation
   Future<ChatRoomModel?> initRoomForListing(String listingId, double initialPrice, {String? buyerId, String? offerId}) async {
     _currentListingId = listingId;
-    state = state.copyWith(messages: const [], isLoading: true, error: null, offerAmount: initialPrice);
+    final hasExistingMessages = _currentListingId == listingId && state.messages.isNotEmpty;
+    if (!hasExistingMessages) {
+      state = state.copyWith(messages: const [], isLoading: true, error: null, offerAmount: initialPrice);
+    }
     try {
       final payload = <String, dynamic>{'listingId': listingId};
       if (buyerId != null && buyerId.isNotEmpty) {
@@ -116,10 +119,11 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
       if (res.data != null && res.data['success'] == true) {
         final room = ChatRoomModel.fromJson(res.data['data']);
         _currentRoomId = room.id;
-        state = state.copyWith(room: room, isLoading: false);
-        await loadMessages(room.id);
-        await _connectWebSocket(room.id);
+        state = state.copyWith(room: room);
+        // Connect WebSocket and mark as read non-blocking in background
+        _connectWebSocket(room.id);
         markAsRead(room.id);
+        await loadMessages(room.id, isSilent: hasExistingMessages);
         return room;
       } else {
         state = state.copyWith(isLoading: false);
@@ -133,13 +137,60 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
     return null;
   }
 
-  /// Initialize chat by Room ID directly
-  Future<void> initRoomById(String roomId) async {
+  /// Initialize chat by Room ID directly (fast path avoiding POST /chat/rooms)
+  Future<ChatRoomModel?> initRoomById(
+    String roomId, {
+    String? listingId,
+    double? initialPrice,
+    String? buyerId,
+    String? buyerName,
+    String? sellerId,
+    String? sellerName,
+    String? offerId,
+    String? listingTitle,
+    double? listingPrice,
+    String? listingImageUrl,
+  }) async {
     _currentRoomId = roomId;
-    state = state.copyWith(isLoading: state.messages.isEmpty, error: null);
-    await loadMessages(roomId);
-    await _connectWebSocket(roomId);
+    if (listingId != null && listingId.isNotEmpty) {
+      _currentListingId = listingId;
+    }
+
+    final hasExistingMessages = state.room?.id == roomId && state.messages.isNotEmpty;
+
+    if (!hasExistingMessages) {
+      final initialRoom = ChatRoomModel(
+        id: roomId,
+        listingId: listingId ?? '',
+        listingTitle: listingTitle ?? '',
+        listingPrice: listingPrice ?? initialPrice ?? 0.0,
+        listingImageUrl: listingImageUrl,
+        buyerId: buyerId ?? '',
+        buyerName: buyerName,
+        sellerId: sellerId ?? '',
+        sellerName: sellerName,
+        createdAt: DateTime.now(),
+      );
+      state = state.copyWith(
+        room: initialRoom,
+        messages: const [],
+        isLoading: true,
+        error: null,
+        offerAmount: initialPrice ?? 0.0,
+      );
+    } else {
+      state = state.copyWith(
+        offerAmount: initialPrice ?? state.offerAmount,
+        error: null,
+      );
+    }
+
+    // Connect WebSocket and mark as read in background without blocking UI
+    _connectWebSocket(roomId);
     markAsRead(roomId);
+
+    await loadMessages(roomId, isSilent: hasExistingMessages);
+    return state.room;
   }
 
   Future<void> _connectWebSocket(String roomId) async {
@@ -345,6 +396,100 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
 
     _markMessageFailed(clientMessageId);
     return false;
+  }
+
+  /// Optimistic send of an image with zero delay local preview and background Cloudflare R2 upload
+  Future<bool> sendImageMessage({
+    required String filePath,
+    String? caption,
+    String? retryClientMessageId,
+  }) async {
+    final trimmedPath = filePath.trim();
+    if (trimmedPath.isEmpty) return false;
+
+    final currentUserId = _ref.read(authProvider).user?.id ?? 'me';
+    final clientMessageId = retryClientMessageId ??
+        '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(999999)}';
+
+    // Optimistic local image message with SENDING status for immediate UI display
+    final optimisticMsg = ChatMessageModel(
+      id: clientMessageId,
+      roomId: _currentRoomId ?? '',
+      senderId: currentUserId,
+      clientMessageId: clientMessageId,
+      content: caption,
+      type: 'IMAGE',
+      mediaUrl: trimmedPath,
+      status: 'SENDING',
+      isMine: true,
+      createdAt: DateTime.now(),
+    );
+
+    List<ChatMessageModel> msgs = List.from(state.messages);
+    final retryIndex = msgs.indexWhere((m) => m.clientMessageId == clientMessageId);
+    if (retryIndex != -1) {
+      msgs[retryIndex] = optimisticMsg;
+    } else {
+      msgs.add(optimisticMsg);
+    }
+
+    state = state.copyWith(messages: msgs, isSending: true);
+
+    if (_currentRoomId == null && _currentListingId != null) {
+      await initRoomForListing(_currentListingId!, state.offerAmount);
+    }
+
+    if (_currentRoomId == null) {
+      _markMessageFailed(clientMessageId);
+      return false;
+    }
+
+    try {
+      // 1. Upload file to Cloudflare R2 via /media/upload (folder: 'chat')
+      final fileName = trimmedPath.split(RegExp(r'[\\/]')).last;
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(trimmedPath, filename: fileName),
+        'folder': 'chat',
+      });
+
+      final uploadRes = await _apiClient.post('/media/upload', data: formData);
+      String? remoteUrl;
+      if (uploadRes.data != null && uploadRes.data['success'] == true && uploadRes.data['data'] != null) {
+        remoteUrl = uploadRes.data['data']['url']?.toString();
+      }
+
+      if (remoteUrl == null || remoteUrl.isEmpty) {
+        debugPrint('[CHAT_PROVIDER] Image upload returned empty URL');
+        _markMessageFailed(clientMessageId);
+        return false;
+      }
+
+      // 2. Post ChatMessage with type=IMAGE and mediaUrl=remoteUrl
+      final res = await _apiClient.post(
+        '/chat/rooms/$_currentRoomId/messages',
+        data: {
+          'clientMessageId': clientMessageId,
+          'content': caption,
+          'type': 'IMAGE',
+          'mediaUrl': remoteUrl,
+        },
+      );
+
+      if (res.data != null && res.data['success'] == true) {
+        final serverMsg = ChatMessageModel.fromJson(res.data['data'], currentUserId: currentUserId);
+        final updated = state.messages.map((m) =>
+            (m.clientMessageId == clientMessageId || m.id == optimisticMsg.id) ? serverMsg : m).toList();
+        state = state.copyWith(messages: updated, isSending: false);
+        return true;
+      } else {
+        _markMessageFailed(clientMessageId);
+        return false;
+      }
+    } catch (e) {
+      debugPrint('[CHAT_PROVIDER] Failed to send image: $e');
+      _markMessageFailed(clientMessageId);
+      return false;
+    }
   }
 
   void _markMessageFailed(String clientMessageId) {

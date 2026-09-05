@@ -30,10 +30,10 @@ class ChatWebSocketService {
   bool get isConnected => _isConnected;
   String? get currentRoomId => _currentRoomId;
 
-  /// Connects to STOMP WebSocket broker and subscribes to /topic/chats/{roomId}
+  /// Connects to STOMP WebSocket broker and subscribes to /topic/users/{userId}/chat and optionally /topic/chats/{roomId}
   void connect({
     required String wsUrl,
-    required String roomId,
+    String? roomId,
     String? userId,
     String? token,
   }) {
@@ -86,16 +86,31 @@ class ChatWebSocketService {
     _isConnected = true;
     onConnected?.call();
 
-    if (_currentRoomId != null) {
+    if (_currentRoomId != null && _currentRoomId!.isNotEmpty) {
       _subscribeToRoom(_currentRoomId!);
     }
 
-    if (_currentUserId != null) {
+    if (_currentUserId != null && _currentUserId!.isNotEmpty) {
       _subscribeToUserNotifications(_currentUserId!);
     }
 
     // Trigger authoritative REST synchronization on reconnect
     onResyncRequired?.call();
+  }
+
+  /// Subscribe to a room dynamically without reconnecting the entire socket
+  void subscribeToRoom(String roomId) {
+    _currentRoomId = roomId;
+    if (_isConnected) {
+      _subscribeToRoom(roomId);
+    }
+  }
+
+  /// Unsubscribe from the current room while keeping user notification subscription active
+  void unsubscribeFromRoom() {
+    _roomSubscription?.call();
+    _roomSubscription = null;
+    _currentRoomId = null;
   }
 
   void _subscribeToRoom(String roomId) {

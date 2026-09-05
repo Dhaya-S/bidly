@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'messages_list_screen.dart';
+import 'offer_chat_screen.dart';
 
 class ChatMessageItem {
   final String id;
@@ -149,6 +150,20 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.thread.listingId.isNotEmpty) {
+      return OfferChatScreen(
+        listingId: widget.thread.listingId,
+        roomId: widget.thread.id,
+        buyerId: widget.thread.buyerId,
+        sellerId: widget.thread.sellerId,
+        isSellerView: widget.isSellerView,
+        buyerName: widget.thread.userName,
+        productTitle: widget.thread.productTitle,
+        productPrice: widget.thread.productPrice,
+        listingImageUrl: widget.thread.listingImageUrl,
+      );
+    }
+
     final displayName = widget.thread.userName.isNotEmpty
         ? widget.thread.userName
         : (widget.isSellerView ? 'Buyer' : 'Seller');

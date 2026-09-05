@@ -370,7 +370,7 @@ public class OfferService {
             msg.setSenderId(currentUserId);
             msg.setType(ChatMessage.MessageType.OFFER_ACCEPTED);
             msg.setStatus(ChatMessage.MessageStatus.SENT);
-            msg.setContent("🎉 Offer of ₹" + (offer.getCounterAmount() != null ? offer.getCounterAmount().toBigInteger() : offer.getAmount().toBigInteger()) + " ACCEPTED! Order #" + order.getOrderNumber() + " confirmed.");
+            msg.setContent("🎉 Offer accepted! Let's chat and meetup.");
             ChatMessage savedMsg = chatMessageRepository.save(msg);
             room.setLastMessageAt(Instant.now());
             room.setUpdatedAt(Instant.now());

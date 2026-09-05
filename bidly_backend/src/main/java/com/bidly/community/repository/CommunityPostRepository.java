@@ -19,6 +19,7 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, UU
     Page<CommunityPost> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     @EntityGraph(attributePaths = {"author", "community", "listing"})
+    @Query("SELECT p FROM CommunityPost p LEFT JOIN p.listing l WHERE p.community IS NULL AND (l IS NULL OR (l.status = 'ACTIVE' AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP))) ORDER BY p.createdAt DESC")
     Page<CommunityPost> findByCommunityIsNullOrderByCreatedAtDesc(Pageable pageable);
 
     @EntityGraph(attributePaths = {"author", "community", "listing"})

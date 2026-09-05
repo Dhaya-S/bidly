@@ -102,7 +102,7 @@ public class OrderService {
         order.setPaymentStatus(deliveryType == Order.DeliveryType.IN_PERSON_MEETUP ? Order.PaymentStatus.PENDING : Order.PaymentStatus.IN_ESCROW);
 
         if (deliveryType == Order.DeliveryType.IN_PERSON_MEETUP) {
-            String secureOtp = String.format("%06d", new Random().nextInt(900000) + 100000);
+            String secureOtp = String.format("%06d", new java.security.SecureRandom().nextInt(900000) + 100000);
             order.setMeetupOtp(secureOtp);
             order.setMeetupOtpVerified(false);
             order.setMeetupLocation(req != null && req.getMeetupLocation() != null && !req.getMeetupLocation().isBlank()
@@ -168,7 +168,7 @@ public class OrderService {
         }
 
         if (order.getMeetupOtp() == null || order.getMeetupOtp().isBlank()) {
-            String secureOtp = String.format("%06d", new Random().nextInt(900000) + 100000);
+            String secureOtp = String.format("%06d", new java.security.SecureRandom().nextInt(900000) + 100000);
             order.setMeetupOtp(secureOtp);
             order.setMeetupOtpVerified(false);
             order.setOtpExpiresAt(Instant.now().plus(Duration.ofHours(48)));
@@ -285,7 +285,7 @@ public class OrderService {
 
         notificationService.sendNotification(
                 otherParty,
-                com.bidly.notification.entity.Notification.NotificationType.MEETUP_SCHEDULED,
+                com.bidly.notification.entity.Notification.NotificationType.MEETUP_CONFIRMED,
                 "Meetup Confirmed",
                 (isBuyer ? saved.getBuyer().getName() : saved.getSeller().getName()) + " confirmed the meetup schedule for " + saved.getListing().getTitle(),
                 saved.getListing(),
@@ -602,13 +602,19 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderSummaryDto getOrCreateOrderByListing(UUID listingId, UUID currentUserId) {
-        Optional<Order> existing = orderRepository.findFirstByListingIdOrderByCreatedAtDesc(listingId);
+        Optional<Order> existing = orderRepository.findFirstByListingIdAndBuyerIdOrderByCreatedAtDesc(listingId, currentUserId);
+        if (existing.isEmpty()) {
+            existing = orderRepository.findFirstByListingIdAndSellerIdOrderByCreatedAtDesc(listingId, currentUserId);
+        }
+        if (existing.isEmpty()) {
+            existing = orderRepository.findFirstByListingIdOrderByCreatedAtDesc(listingId);
+        }
         if (existing.isPresent()) {
             Order order = existing.get();
             if (!order.getBuyer().getId().equals(currentUserId) && !order.getSeller().getId().equals(currentUserId)) {
                 throw BidlyException.forbidden("Unauthorized: You do not have access to this order's details");
             }
-            return mapToSummaryDto(order);
+            return mapToSummaryDto(order, currentUserId);
         }
         throw BidlyException.notFound("No active order found for listing: " + listingId);
     }
@@ -733,6 +739,21 @@ public class OrderService {
                 "Product delivered and confirmed by buyer",
                 Instant.now()
         ));
+
+        // Notify Seller that buyer confirmed delivery and payout released
+        notificationService.sendNotification(
+                order.getSeller(),
+                com.bidly.notification.entity.Notification.NotificationType.TRANSACTION_COMPLETED,
+                "Delivery Confirmed",
+                order.getBuyer().getName() + " confirmed receipt of " + order.getListing().getTitle() + ". Escrow payout released!",
+                order.getListing(),
+                order.getOffer(),
+                order,
+                "View Sale Details",
+                "/my-listings/sale-summary/" + order.getId(),
+                order.getId(),
+                null
+        );
 
         return mapToSummaryDto(order);
     }

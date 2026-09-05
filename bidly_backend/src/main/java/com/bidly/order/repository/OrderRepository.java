@@ -19,6 +19,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     Optional<Order> findFirstByListingIdOrderByCreatedAtDesc(UUID listingId);
 
     @EntityGraph(attributePaths = {"listing", "buyer", "seller", "deliveryAddress"})
+    Optional<Order> findFirstByListingIdAndBuyerIdOrderByCreatedAtDesc(UUID listingId, UUID buyerId);
+
+    @EntityGraph(attributePaths = {"listing", "buyer", "seller", "deliveryAddress"})
+    Optional<Order> findFirstByListingIdAndSellerIdOrderByCreatedAtDesc(UUID listingId, UUID sellerId);
+
+    @EntityGraph(attributePaths = {"listing", "buyer", "seller", "deliveryAddress"})
     Optional<Order> findByOfferId(UUID offerId);
 
     @EntityGraph(attributePaths = {"listing", "buyer", "seller"})

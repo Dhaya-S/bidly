@@ -1,14 +1,16 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class NotificationItemModel {
   final String id;
+  final String? userId;
   final String title;
   final String body;
   final String timeAgo;
   final bool isUnread;
-  final String type; // NEW_OFFER, OFFER_ACCEPTED, OFFER_REJECTED, MEETUP_SCHEDULED, OTP_READY, OTP_VERIFIED, TRANSACTION_COMPLETED, ITEM_SOLD
+  final String type; // NEW_OFFER, OFFER_COUNTERED, OFFER_ACCEPTED, OFFER_REJECTED, MEETUP_SCHEDULED, MEETUP_CONFIRMED, OTP_READY, OTP_VERIFIED, TRANSACTION_COMPLETED, ITEM_SOLD, REVIEW_RECEIVED
   final String? actionLabel;
   final String? targetRoute;
   final String? targetId;
@@ -19,6 +21,7 @@ class NotificationItemModel {
 
   const NotificationItemModel({
     required this.id,
+    this.userId,
     required this.title,
     required this.body,
     required this.timeAgo,
@@ -47,6 +50,7 @@ class NotificationItemModel {
 
     return NotificationItemModel(
       id: json['id']?.toString() ?? '',
+      userId: json['userId']?.toString(),
       title: json['title']?.toString() ?? 'Notification',
       body: json['body']?.toString() ?? '',
       timeAgo: json['timeAgo']?.toString() ?? 'Just now',
@@ -64,6 +68,7 @@ class NotificationItemModel {
 
   NotificationItemModel copyWith({
     String? id,
+    String? userId,
     String? title,
     String? body,
     String? timeAgo,
@@ -79,6 +84,7 @@ class NotificationItemModel {
   }) {
     return NotificationItemModel(
       id: id ?? this.id,
+      userId: userId ?? this.userId,
       title: title ?? this.title,
       body: body ?? this.body,
       timeAgo: timeAgo ?? this.timeAgo,
@@ -121,18 +127,33 @@ class NotificationsState {
 
 class NotificationsNotifier extends StateNotifier<NotificationsState> {
   final ApiClient _apiClient;
+  final String? _currentUserId;
 
-  NotificationsNotifier(this._apiClient) : super(const NotificationsState()) {
-    fetchNotifications();
+  NotificationsNotifier(this._apiClient, this._currentUserId) : super(const NotificationsState()) {
+    final uid = _currentUserId;
+    if (uid != null && uid.isNotEmpty) {
+      fetchNotifications();
+    }
   }
 
   Future<void> fetchNotifications() async {
+    final uid = _currentUserId;
+    if (uid == null || uid.isEmpty) {
+      state = const NotificationsState();
+      return;
+    }
+
     state = state.copyWith(isLoading: true);
     try {
       final res = await _apiClient.get('/notifications');
       if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
         final list = (res.data['data'] as List)
             .map((item) => NotificationItemModel.fromJson(item as Map<String, dynamic>))
+            // Security & isolation filter: only retain notifications belonging to current authenticated user
+            .where((n) {
+              final nUid = n.userId;
+              return nUid == null || nUid.isEmpty || nUid == uid;
+            })
             .toList();
 
         final unread = list.where((n) => n.isUnread).length;
@@ -149,6 +170,13 @@ class NotificationsNotifier extends StateNotifier<NotificationsState> {
   }
 
   void addRealtimeNotification(NotificationItemModel item) {
+    final uid = _currentUserId;
+    if (uid == null || uid.isEmpty) return;
+    final itemUid = item.userId;
+    // Strict isolation guard: discard any notification meant for another user
+    if (itemUid != null && itemUid.isNotEmpty && itemUid != uid) {
+      return;
+    }
     final updated = [item, ...state.notifications.where((n) => n.id != item.id)];
     final unread = updated.where((n) => n.isUnread).length;
     state = state.copyWith(notifications: updated, unreadCount: unread);
@@ -180,5 +208,6 @@ class NotificationsNotifier extends StateNotifier<NotificationsState> {
 final notificationsProvider =
     StateNotifierProvider<NotificationsNotifier, NotificationsState>((ref) {
   final apiClient = ref.watch(apiClientProvider);
-  return NotificationsNotifier(apiClient);
+  final authUser = ref.watch(authProvider).user;
+  return NotificationsNotifier(apiClient, authUser?.id);
 });

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../../auth/models/auth_state.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../posts/providers/posts_provider.dart';
@@ -120,7 +121,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
                 color: AppTheme.primary,
                 onRefresh: () => ref.read(postsProvider.notifier).fetchFeed(isRefresh: true),
                 child: postsState.isLoading && postsState.posts.isEmpty
-                    ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+                    ? const Center(child: BidlyLoadingIndicator(message: 'Loading community feed...'))
                     : postsState.posts.isEmpty
                         ? _buildEmptyPostsState()
                         : NotificationListener<ScrollNotification>(

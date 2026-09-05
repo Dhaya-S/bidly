@@ -285,12 +285,14 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               // Verify CTA Button
               SizedBox(
                 width: double.infinity,
-                height: 48,
+                height: 50,
                 child: ElevatedButton(
                   onPressed: isLoading ? null : _handleVerify,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primary,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppTheme.primary,
+                    disabledForegroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -301,16 +303,17 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                           width: 22,
                           height: 22,
                           child: CircularProgressIndicator(
-                            color: Colors.white,
                             strokeWidth: 2.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
                       : const Text(
-                          'Verify',
+                          'Verify OTP',
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
+                            color: Colors.white,
                           ),
                         ),
                 ),

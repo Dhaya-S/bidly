@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../providers/notifications_provider.dart';
 
 import '../../chat/widgets/new_offer_bottom_sheet.dart';
@@ -14,12 +15,32 @@ class NotificationsScreen extends ConsumerWidget {
   void _handleNotificationTap(BuildContext context, WidgetRef ref, NotificationItemModel notif) {
     ref.read(notificationsProvider.notifier).markAsRead(notif.id);
 
+    final currentUserId = ref.read(authProvider).user?.id;
     final listingId = notif.listingId ?? notif.targetId;
     final buyerId = notif.metadata?['buyerId']?.toString();
     final offerId = notif.offerId ?? notif.metadata?['offerId']?.toString() ?? notif.targetId;
     final buyerName = notif.metadata?['buyerName']?.toString();
+    final isCurrentUserBuyer = currentUserId != null && buyerId != null && currentUserId == buyerId;
 
     if (notif.type == 'NEW_OFFER' || notif.type == 'OFFER') {
+      // If current user is buyer, route to offer chat (never show seller acceptance bottomsheet to buyer)
+      if (isCurrentUserBuyer) {
+        if (listingId != null && listingId.isNotEmpty) {
+          context.push(
+            '/chat/offer/$listingId',
+            extra: {
+              'buyerId': buyerId,
+              'offerId': offerId,
+              'buyerName': buyerName,
+            },
+          );
+          return;
+        }
+        context.push(AppRoutes.chatList);
+        return;
+      }
+
+      // Current user is seller: open NewOfferBottomSheet
       if (listingId != null && listingId.isNotEmpty) {
         final offerAmount = (notif.metadata?['offerAmount'] != null)
             ? (double.tryParse(notif.metadata!['offerAmount'].toString()) ?? 0.0)
@@ -41,7 +62,8 @@ class NotificationsScreen extends ConsumerWidget {
         return;
       }
       context.push(AppRoutes.chatList);
-    } else if (notif.type == 'MEETUP_SCHEDULED' || notif.type == 'MEETUP_CONFIRMED') {
+    } else if (notif.type == 'OFFER_COUNTERED') {
+      // Counter-offer sent by seller to buyer: buyer views counter-offer in offer chat
       if (listingId != null && listingId.isNotEmpty) {
         context.push(
           '/chat/offer/$listingId',
@@ -49,6 +71,20 @@ class NotificationsScreen extends ConsumerWidget {
             'buyerId': buyerId,
             'offerId': offerId,
             'buyerName': buyerName,
+          },
+        );
+        return;
+      }
+      context.push(AppRoutes.chatList);
+      final effectiveOrderId = notif.orderId ?? notif.targetId ?? notif.metadata?['orderId']?.toString();
+      if (listingId != null && listingId.isNotEmpty) {
+        context.push(
+          '/chat/offer/$listingId',
+          extra: {
+            'buyerId': buyerId,
+            'offerId': offerId,
+            'buyerName': buyerName,
+            'orderId': effectiveOrderId,
           },
         );
         return;
@@ -66,14 +102,31 @@ class NotificationsScreen extends ConsumerWidget {
         return;
       }
       context.push(AppRoutes.orders);
-    } else if (notif.type == 'TRANSACTION_COMPLETED' || notif.type == 'ITEM_SOLD') {
+    } else if (notif.type == 'ITEM_SOLD') {
+      // ITEM_SOLD notification is sent to BUYER: prompt review/rating
+      final orderId = notif.orderId ?? notif.targetId;
+      if (orderId != null && orderId.isNotEmpty) {
+        context.push('/orders/$orderId/review');
+        return;
+      }
+      context.push(AppRoutes.orders);
+    } else if (notif.type == 'TRANSACTION_COMPLETED') {
+      // TRANSACTION_COMPLETED notification is sent to SELLER: route to sale summary
       final orderId = notif.orderId ?? notif.targetId;
       if (orderId != null && orderId.isNotEmpty) {
         context.push('/my-listings/sale-summary/$orderId');
         return;
       }
       context.push(AppRoutes.myListings);
-    } else if (notif.type == 'OFFER_ACCEPTED' || notif.type == 'OFFER_COUNTERED' || notif.type == 'OFFER_REJECTED') {
+    } else if (notif.type == 'REVIEW_RECEIVED') {
+      // REVIEW_RECEIVED notification is sent to SELLER when buyer leaves a review
+      final orderId = notif.orderId ?? notif.targetId;
+      if (orderId != null && orderId.isNotEmpty) {
+        context.push('/my-listings/sale-summary/$orderId');
+        return;
+      }
+      context.push(AppRoutes.profile);
+    } else if (notif.type == 'OFFER_ACCEPTED' || notif.type == 'OFFER_REJECTED') {
       if (listingId != null && listingId.isNotEmpty) {
         context.push(
           '/chat/offer/$listingId',
@@ -91,6 +144,10 @@ class NotificationsScreen extends ConsumerWidget {
     } else if (notif.type == 'SHIPPED' || notif.type == 'DELIVERED') {
       context.push(AppRoutes.orders);
     } else {
+      if (notif.targetRoute != null && notif.targetRoute!.isNotEmpty) {
+        context.push(notif.targetRoute!);
+        return;
+      }
       if (listingId != null && listingId.isNotEmpty) {
         context.push(
           '/chat/offer/$listingId',
@@ -221,15 +278,17 @@ class NotificationsScreen extends ConsumerWidget {
                                 ),
                                 child: Center(
                                   child: Icon(
-                                    notif.type == 'OFFER' || notif.type == 'NEW_OFFER'
+                                    notif.type == 'OFFER' || notif.type == 'NEW_OFFER' || notif.type == 'OFFER_COUNTERED'
                                         ? Icons.local_offer_outlined
                                         : (notif.type == 'BID'
                                             ? Icons.gavel_rounded
                                             : (notif.type == 'SHIPPED'
                                                 ? Icons.local_shipping_outlined
-                                                : (notif.type == 'MEETUP_SCHEDULED'
+                                                : (notif.type == 'MEETUP_SCHEDULED' || notif.type == 'MEETUP_CONFIRMED'
                                                     ? Icons.handshake_outlined
-                                                    : Icons.check_circle_outline_rounded))),
+                                                    : (notif.type == 'REVIEW_RECEIVED'
+                                                        ? Icons.star_outline_rounded
+                                                        : Icons.check_circle_outline_rounded)))),
                                     color: const Color(0xFF004E54),
                                     size: 22,
                                   ),

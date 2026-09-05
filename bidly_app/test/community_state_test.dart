@@ -110,5 +110,46 @@ void main() {
       expect(state.communities, isEmpty);
       expect(state.searchQuery, isEmpty);
     });
+
+    test('Phone normalization handles country codes, spaces, dashes and brackets', () {
+      String normalizePhone(String raw) {
+        final digits = raw.replaceAll(RegExp(r'\D'), '');
+        if (digits.length > 10) {
+          return digits.substring(digits.length - 10);
+        }
+        return digits;
+      }
+
+      expect(normalizePhone('+91 98765 43210'), '9876543210');
+      expect(normalizePhone('+91-98765-43210'), '9876543210');
+      expect(normalizePhone('(044) 9876543210'), '9876543210');
+      expect(normalizePhone('09876543210'), '9876543210');
+      expect(normalizePhone('9876543210'), '9876543210');
+    });
+
+    test('Contact user search filter matches by name and phone number', () {
+      final contacts = [
+        {'name': 'Ramesh Kumar', 'contactDisplayName': 'Ramesh Office', 'phone': '9876543210'},
+        {'name': 'Suresh Raina', 'contactDisplayName': 'Suresh Cricket', 'phone': '9123456789'},
+        {'name': 'Anita Roy', 'contactDisplayName': 'Anita R', 'phone': '9988776655'},
+      ];
+
+      List<Map<String, dynamic>> filter(String q) {
+        if (q.trim().isEmpty) return contacts;
+        final lower = q.toLowerCase();
+        return contacts.where((u) {
+          final name = (u['contactDisplayName'] ?? u['name'] ?? '').toString().toLowerCase();
+          final phone = (u['phone'] ?? '').toString();
+          return name.contains(lower) || phone.contains(lower);
+        }).toList();
+      }
+
+      expect(filter('ramesh').length, 1);
+      expect(filter('91234').length, 1);
+      expect(filter('Office').length, 1);
+      expect(filter('xyz').length, 0);
+      expect(filter('').length, 3);
+    });
   });
 }
+

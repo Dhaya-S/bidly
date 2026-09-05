@@ -921,7 +921,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                         onPressed: () async {
                           ReelsControllerManager().pauseAll();
                           if (isAuction) {
-                            await context.push('/auction/${widget.listing.id}/bid');
+                            await context.push('/listing/${widget.listing.id}', extra: widget.listing);
                           } else {
                             await context.push('/chat/offer/${widget.listing.id}', extra: widget.listing);
                           }

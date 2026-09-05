@@ -23,6 +23,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -123,14 +124,51 @@ public class ChatService {
         return getOrCreateRoom(listingId, buyerId, null, null);
     }
 
-    /** List all chat rooms where user is buyer or seller with unread counts. */
+    /** List all chat rooms where user is buyer or seller with unread counts using batch queries. */
     @Transactional(readOnly = true)
     public List<ChatRoomDto> listRooms(UUID userId) {
         if (userId == null) {
             throw BidlyException.unauthorized("Authentication required");
         }
-        return roomRepo.findAllByUserId(userId).stream()
-                .map(r -> mapRoomToDto(r, userId))
+        List<ChatRoom> rooms = roomRepo.findAllByUserId(userId);
+        if (rooms.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<UUID> roomIds = rooms.stream().map(ChatRoom::getId).collect(Collectors.toList());
+
+        // Batch fetch all associated listings in 1 query
+        Set<UUID> listingIds = rooms.stream().map(ChatRoom::getListingId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, Listing> listingMap = listingRepo.findAllById(listingIds).stream()
+                .collect(Collectors.toMap(Listing::getId, Function.identity(), (a, b) -> a));
+
+        // Batch fetch all buyers and sellers in 1 query
+        Set<UUID> userIds = new HashSet<>();
+        for (ChatRoom r : rooms) {
+            if (r.getBuyerId() != null) userIds.add(r.getBuyerId());
+            if (r.getSellerId() != null) userIds.add(r.getSellerId());
+        }
+        Map<UUID, User> userMap = userRepo.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity(), (a, b) -> a));
+
+        // Batch fetch unread counts in 1 query
+        Map<UUID, Integer> unreadMap = new HashMap<>();
+        List<Object[]> unreadCounts = messageRepo.countUnreadInRooms(roomIds, userId);
+        for (Object[] row : unreadCounts) {
+            if (row != null && row.length >= 2 && row[0] instanceof UUID && row[1] instanceof Number) {
+                unreadMap.put((UUID) row[0], ((Number) row[1]).intValue());
+            }
+        }
+
+        // Batch fetch latest message for each room in 1 query
+        Map<UUID, ChatMessage> latestMessageMap = new HashMap<>();
+        List<ChatMessage> recentMessages = messageRepo.findRecentMessagesInRooms(roomIds);
+        for (ChatMessage m : recentMessages) {
+            latestMessageMap.putIfAbsent(m.getRoomId(), m);
+        }
+
+        return rooms.stream()
+                .map(r -> mapRoomToDto(r, userId, listingMap, userMap, unreadMap, latestMessageMap))
                 .collect(Collectors.toList());
     }
 
@@ -331,6 +369,60 @@ public class ChatService {
         return dto;
     }
 
+    private ChatRoomDto mapRoomToDto(ChatRoom r, UUID currentUserId,
+                                    Map<UUID, Listing> listingMap,
+                                    Map<UUID, User> userMap,
+                                    Map<UUID, Integer> unreadMap,
+                                    Map<UUID, ChatMessage> latestMessageMap) {
+        ChatRoomDto dto = new ChatRoomDto();
+        dto.setId(r.getId());
+        dto.setListingId(r.getListingId());
+        dto.setBuyerId(r.getBuyerId());
+        dto.setSellerId(r.getSellerId());
+        dto.setStatus(r.getStatus().name());
+        dto.setLastMessageAt(r.getLastMessageAt());
+        dto.setCreatedAt(r.getCreatedAt());
+
+        Listing l = listingMap.get(r.getListingId());
+        if (l != null) {
+            dto.setListingTitle(l.getTitle());
+            dto.setListingPrice(l.getPrice() != null ? l.getPrice().doubleValue() : 0.0);
+            if (l.getMedia() != null && !l.getMedia().isEmpty()) {
+                String presigned = mediaService.generatePresignedGetUrl(l.getMedia().get(0).getUrl(), Duration.ofHours(4));
+                dto.setListingImageUrl(presigned != null ? presigned : l.getMedia().get(0).getUrl());
+            }
+        }
+
+        User buyer = userMap.get(r.getBuyerId());
+        if (buyer != null) dto.setBuyerName(buyer.getName());
+
+        User seller = userMap.get(r.getSellerId());
+        if (seller != null) dto.setSellerName(seller.getName());
+
+        boolean isBuyer = currentUserId.equals(r.getBuyerId());
+        UUID otherId = isBuyer ? r.getSellerId() : r.getBuyerId();
+        String otherName = isBuyer ? dto.getSellerName() : dto.getBuyerName();
+        dto.setOtherUserId(otherId);
+        dto.setOtherUserName(otherName != null ? otherName : (isBuyer ? "Seller" : "Buyer"));
+        dto.setOtherUserRole(isBuyer ? "Seller" : "Buyer");
+
+        dto.setUnreadCount(unreadMap.getOrDefault(r.getId(), 0));
+
+        ChatMessage m = latestMessageMap.get(r.getId());
+        if (m != null) {
+            if (m.getType() == ChatMessage.MessageType.OFFER && m.getOfferAmount() != null) {
+                dto.setLastMessagePreview("Offer: ₹" + m.getOfferAmount().toBigInteger());
+            } else if (m.getType() == ChatMessage.MessageType.MEETUP_REQUEST) {
+                dto.setLastMessagePreview("📅 In-Person Meetup Request");
+            } else if (m.getType() == ChatMessage.MessageType.IMAGE) {
+                dto.setLastMessagePreview("📷 Photo attachment");
+            } else if (m.getContent() != null) {
+                dto.setLastMessagePreview(m.getContent());
+            }
+        }
+        return dto;
+    }
+
     private ChatMessageDto mapMsgToDto(ChatMessage m, UUID currentUserId) {
         ChatMessageDto dto = new ChatMessageDto();
         dto.setId(m.getId());
@@ -342,7 +434,12 @@ public class ChatService {
         dto.setType(m.getType().name());
         dto.setStatus(m.getStatus().name());
         dto.setReadAt(m.getReadAt());
-        dto.setMediaUrl(m.getMediaUrl());
+        if (m.getType() == ChatMessage.MessageType.IMAGE && m.getMediaUrl() != null && !m.getMediaUrl().isBlank()) {
+            String presigned = mediaService.generatePresignedGetUrl(m.getMediaUrl(), Duration.ofHours(24));
+            dto.setMediaUrl(presigned != null ? presigned : m.getMediaUrl());
+        } else {
+            dto.setMediaUrl(m.getMediaUrl());
+        }
         dto.setMetadata(m.getMetadata());
         dto.setMine(currentUserId != null && m.getSenderId().equals(currentUserId));
         dto.setCreatedAt(m.getCreatedAt());

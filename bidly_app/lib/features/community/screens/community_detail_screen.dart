@@ -10,6 +10,7 @@ import '../models/community_model.dart';
 import '../providers/community_provider.dart';
 import '../../sell/providers/sell_provider.dart';
 import 'manage_community_screen.dart';
+import 'community_reels_screen.dart';
 
 class CommunityDetailScreen extends ConsumerStatefulWidget {
   final CommunityModel community;
@@ -33,13 +34,8 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   void initState() {
     super.initState();
     Future.microtask(() {
-      final isJoined = widget.community.isJoined || widget.community.isAdmin || widget.community.userRole == 'ADMIN';
-      if (isJoined) {
-        ref.read(communityProvider.notifier).fetchMembers(widget.community.id);
-        _loadRealPosts();
-      } else {
-        if (mounted) setState(() => _isLoadingPosts = false);
-      }
+      ref.read(communityProvider.notifier).fetchMembers(widget.community.id);
+      _loadRealPosts();
     });
   }
 
@@ -363,12 +359,10 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   ),
                 );
               } else if (val == 'add_post') {
-                if (isAdmin) {
+                if (isJoined) {
                   _navigateToSell(community);
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Only community admins can publish posts in this community')),
-                  );
+                  _showJoinToInteractModal(community);
                 }
               } else if (val == 'leave') {
                 _confirmLeaveCommunity(community);
@@ -399,14 +393,14 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   ],
                 ),
               ),
-              if (isAdmin)
+              if (isJoined)
                 const PopupMenuItem(
                   value: 'add_post',
                   child: Row(
                     children: [
                       Icon(Icons.post_add_rounded, size: 18, color: Color(0xFF004E54)),
                       SizedBox(width: 10),
-                      Text('Add Community Post'),
+                      Text('Post in Community'),
                     ],
                   ),
                 ),
@@ -450,11 +444,9 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
         ),
       ),
       body: SafeArea(
-        child: !isJoined
-            ? _buildNonMemberPreview(community)
-            : _isLoadingPosts
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF004E54)))
-                : _communityPosts.isEmpty
+        child: _isLoadingPosts
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF004E54)))
+            : _communityPosts.isEmpty
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32.0),
@@ -483,9 +475,9 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            isAdmin
-                                ? 'As the community admin, create and list the first product for members!'
-                                : 'Welcome to ${widget.community.name}! Check back soon for new deals posted by the admin.',
+                            isJoined
+                                ? 'Be the first to post something in this community!'
+                                : 'Join this community to see and post items.',
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 13,
@@ -493,7 +485,30 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                             ),
                             textAlign: TextAlign.center,
                           ),
-                          if (isAdmin) ...[
+                          if (!isJoined) ...[
+                            const SizedBox(height: 20),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
+                                if (mounted && ok) {
+                                  messenger.showSnackBar(
+                                    SnackBar(content: Text('Welcome to ${community.name}!'), backgroundColor: const Color(0xFF004E54)),
+                                  );
+                                  _loadRealPosts();
+                                }
+                              },
+                              icon: const Icon(Icons.group_add_rounded, size: 18),
+                              label: const Text('Join Community', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF004E54),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              ),
+                            ),
+                          ],
+                          if (isJoined) ...[
                             const SizedBox(height: 20),
                             ElevatedButton.icon(
                               onPressed: () => _navigateToSell(community),
@@ -520,13 +535,14 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                       itemCount: _communityPosts.length,
                       itemBuilder: (context, index) {
                         final post = _communityPosts[index];
-                        return _buildPostCard(post);
+                        return _buildPostCard(post, isJoined: isJoined, community: community);
                       },
                     ),
                   ),
       ),
-      // Floating Action Button shown ONLY to Community Admin / Creator
-      floatingActionButton: isAdmin
+
+      // Floating Action Button shown to all community members
+      floatingActionButton: isJoined
           ? FloatingActionButton(
               onPressed: () => _navigateToSell(community),
               backgroundColor: const Color(0xFF004E54),
@@ -537,7 +553,72 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
   }
 
-  Widget _buildPostCard(Map<String, dynamic> post) {
+  void _showJoinToInteractModal(CommunityModel community) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 48, height: 48,
+              decoration: const BoxDecoration(color: Color(0xFFE6F4F1), shape: BoxShape.circle),
+              child: const Icon(Icons.lock_outline_rounded, color: Color(0xFF004E54), size: 26),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Members Only',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1E232A)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Join ${community.name} to make offers, bid, and contact sellers.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: Color(0xFF64748B), height: 1.4),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.group_add_rounded, color: Colors.white, size: 20),
+                label: const Text('Join Community', style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF004E54),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
+                  if (mounted && ok) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Welcome to ${community.name}!'), backgroundColor: const Color(0xFF004E54)),
+                    );
+                    ref.read(communityProvider.notifier).fetchMembers(community.id);
+                    _loadRealPosts();
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Not now', style: TextStyle(fontFamily: 'Poppins', color: Color(0xFF64748B))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostCard(Map<String, dynamic> post, {required bool isJoined, required CommunityModel community}) {
     final isAuction = post['sellingMethod'] == 'AUCTION';
     final isLiked = post['isLiked'] as bool? ?? false;
     final likesCount = post['likesCount'] as int? ?? 0;
@@ -624,40 +705,69 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
             ),
           ),
 
-          // 2. Product Image Preview
-          ClipRRect(
-            child: (post['imageUrl'] != null && (post['imageUrl'] as String).isNotEmpty)
-                ? CachedNetworkImage(
-                    imageUrl: ApiClient.resolveMediaUrl(post['imageUrl'] as String),
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
-                      height: 200,
-                      color: const Color(0xFFE2F3F0),
-                      child: const Center(
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: Color(0xFF004E54),
-                        ),
-                      ),
-                    ),
-                    errorWidget: (context, url, error) => Container(
-                      height: 200,
-                      color: const Color(0xFFE2F3F0),
-                      child: const Center(
-                        child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF004E54), size: 36),
-                      ),
-                    ),
-                  )
-                : Container(
-                    height: 200,
-                    width: double.infinity,
-                    color: const Color(0xFFE2F3F0),
-                    child: const Center(
-                      child: Icon(Icons.image_outlined, color: Color(0xFF004E54), size: 40),
-                    ),
+          // 2. Product Image Preview (tap to open Reels)
+          GestureDetector(
+            onTap: () {
+              final currentIndex = _communityPosts.indexOf(post);
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CommunityReelsScreen(
+                    community: widget.community,
+                    posts: _communityPosts,
+                    initialIndex: currentIndex >= 0 ? currentIndex : 0,
                   ),
+                ),
+              );
+            },
+            child: ClipRRect(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  (post['imageUrl'] != null && (post['imageUrl'] as String).isNotEmpty)
+                      ? CachedNetworkImage(
+                          imageUrl: ApiClient.resolveMediaUrl(post['imageUrl'] as String),
+                          height: 200,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            height: 200,
+                            color: const Color(0xFFE2F3F0),
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF004E54),
+                              ),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            height: 200,
+                            color: const Color(0xFFE2F3F0),
+                            child: const Center(
+                              child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF004E54), size: 36),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          height: 200,
+                          width: double.infinity,
+                          color: const Color(0xFFE2F3F0),
+                          child: const Center(
+                            child: Icon(Icons.image_outlined, color: Color(0xFF004E54), size: 40),
+                          ),
+                        ),
+                  // Play icon overlay (to indicate tapping opens reels)
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+                  ),
+                ],
+              ),
+            ),
           ),
 
           // 3. Product Info
@@ -793,7 +903,13 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
 
                     // Right side: Contact Button
                     InkWell(
-                      onTap: () => _showContactSheet(post['authorName'] as String, title),
+                      onTap: () {
+                        if (isJoined) {
+                          _showContactSheet(post['authorName'] as String, title);
+                        } else {
+                          _showJoinToInteractModal(community);
+                        }
+                      },
                       borderRadius: BorderRadius.circular(20),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -828,195 +944,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       ),
     );
   }
-
-  Widget _buildNonMemberPreview(CommunityModel community) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE6F4F1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.groups_rounded, color: Color(0xFF004E54), size: 38),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  community.name,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E232A),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    community.category,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.people_outline_rounded, size: 16, color: Color(0xFF64748B)),
-                    const SizedBox(width: 5),
-                    Text(
-                      '${community.membersCount > 0 ? community.membersCount : 1} members',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
-                    ),
-                    if (community.city != null && community.city!.isNotEmpty) ...[
-                      const SizedBox(width: 16),
-                      const Icon(Icons.location_on_outlined, size: 16, color: Color(0xFF64748B)),
-                      const SizedBox(width: 4),
-                      Text(
-                        community.city!,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // About Section
-          if (community.description != null && community.description!.isNotEmpty) ...[
-            const Text(
-              'About Community',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1E232A)),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
-              ),
-              child: Text(
-                community.description!,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: Color(0xFF475569), height: 1.5),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-
-          // Rules Section
-          if (community.rules != null && community.rules!.isNotEmpty) ...[
-            const Text(
-              'Community Rules',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1E232A)),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
-              ),
-              child: Text(
-                community.rules!,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: Color(0xFF475569), height: 1.5),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-
-          // Private Content Notice
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0FDF4),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFBBF7D0)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.lock_outline_rounded, color: Color(0xFF16A34A), size: 20),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Community posts, discussions, and member listings are private to joined members.',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF15803D), fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Join Button
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.group_add_rounded, color: Colors.white, size: 20),
-              label: const Text(
-                'Join & Open Community',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF004E54),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                elevation: 0,
-              ),
-              onPressed: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
-                if (mounted && ok) {
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Welcome to ${community.name}!'),
-                      backgroundColor: const Color(0xFF004E54),
-                    ),
-                  );
-                  ref.read(communityProvider.notifier).fetchMembers(community.id);
-                  _loadRealPosts();
-                }
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
+
+

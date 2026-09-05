@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../models/auction_model.dart';
 import '../providers/auction_provider.dart';
 
@@ -74,6 +75,14 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
   }
 
   void _onConfirmBidTapped(AuctionDetailsModel details) async {
+    final state = ref.read(auctionProvider);
+    if (state.selectedAddress == null && state.addresses.isEmpty) {
+      _showDeliveryAddressModal(context, onSaved: () {
+        _onConfirmBidTapped(details);
+      });
+      return;
+    }
+
     final notifier = ref.read(auctionProvider.notifier);
     final sufficient = await notifier.validateWallet(widget.listingId, _bidAmount);
     if (!mounted) return;
@@ -93,7 +102,7 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
     _showWalletValidationSheet(context, balance, _bidAmount, sufficient);
   }
 
-  void _showDeliveryAddressModal(BuildContext context) {
+  void _showDeliveryAddressModal(BuildContext context, {VoidCallback? onSaved}) {
     final state = ref.read(auctionProvider);
     if (state.selectedAddress != null) {
       _nameController.text = state.selectedAddress!.fullName;
@@ -161,16 +170,19 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                             city: _cityController.text.trim(),
                             pincode: _pincodeController.text.trim(),
                           );
-                      if (context.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        Navigator.pop(ctx);
+                        onSaved?.call();
+                      }
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE2E8F0),
-                    foregroundColor: const Color(0xFF475569),
+                    backgroundColor: const Color(0xFF004E54),
+                    foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('Save Address', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                  child: const Text('Save & Continue', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
                 ),
               ),
             ],
@@ -245,7 +257,10 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                 ),
                 const SizedBox(height: 4),
-                const Text('Ready to place your bid', style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF64748B))),
+                Text(
+                  sufficient ? 'Ready to place your bid' : 'Insufficient balance',
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: Color(0xFF64748B)),
+                ),
                 const SizedBox(height: 20),
 
                 // Balance vs Bid Card
@@ -266,7 +281,11 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
                           const SizedBox(height: 2),
                           Text(
                             currencyFormatter.format(balance),
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF10B981)),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: sufficient ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                            ),
                           ),
                         ],
                       ),
@@ -417,9 +436,10 @@ class _PlaceBidScreenState extends ConsumerState<PlaceBidScreen> {
     final details = state.auctionDetails;
 
     if (state.isLoading && details == null) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF004E54))),
+      return const BidlyLoadingScreen(
+        message: 'Loading auction details...',
+        appBarTitle: 'Place Your Bid',
+        showBackButton: true,
       );
     }
 

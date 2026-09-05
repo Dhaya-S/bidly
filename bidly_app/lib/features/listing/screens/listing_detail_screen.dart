@@ -7,6 +7,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_loading_indicator.dart';
+import '../../auction/models/auction_model.dart';
+import '../../auction/providers/auction_provider.dart';
 import '../../explore/models/listing_model.dart';
 
 class ListingDetailScreen extends ConsumerStatefulWidget {
@@ -42,6 +45,11 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
     super.initState();
     _listing = widget.initialListing;
     _isWishlisted = widget.initialListing?.isWishlisted ?? false;
+    if (widget.initialListing?.isAuction == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(auctionProvider.notifier).initAuctionSilent(widget.listingId);
+      });
+    }
     _fetchListingDetails();
   }
 
@@ -119,6 +127,9 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
             _isWishlisted = _listing?.isWishlisted ?? false;
             _isLoading = false;
           });
+          if (_listing?.isAuction == true) {
+            ref.read(auctionProvider.notifier).initAuctionSilent(widget.listingId);
+          }
           // If first item is video, initialize it
           if (_listing != null && _listing!.mediaItems.isNotEmpty && _listing!.mediaItems.first.isVideo) {
             _initializeVideoForIndex(0, _listing!.mediaItems.first.url);
@@ -160,11 +171,10 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _listing == null) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(color: AppTheme.primary),
-        ),
+      return const BidlyLoadingScreen(
+        message: 'Loading listing details...',
+        appBarTitle: 'Product Details',
+        showBackButton: true,
       );
     }
 
@@ -207,7 +217,46 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
         : (images.map((img) => MediaItemModel(url: img, type: 'IMAGE')).toList());
 
     final isDirectSale = !listing.isAuction;
-    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ', decimalDigits: 0);
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+    final auctionState = ref.watch(auctionProvider);
+    final auctionDetails = auctionState.auctionDetails;
+    final liveStatus = auctionState.liveStatus;
+
+    final currentHighestBid = liveStatus?.currentHighestBid ??
+        auctionDetails?.currentHighestBid ??
+        listing.currentBid ??
+        listing.startingBid ??
+        listing.price;
+    final minNextBid = liveStatus?.minNextBid ??
+        auctionDetails?.minNextBid ??
+        (currentHighestBid + 500);
+    final totalBids = liveStatus?.totalBids ?? auctionDetails?.totalBids ?? listing.bidsCount;
+    final watching = liveStatus?.watchingCount ?? auctionDetails?.watchingCount ?? 0;
+    String computeTimeLeft() {
+      if (auctionState.timeLeftFormatted.isNotEmpty && auctionState.timeLeftFormatted != '--:--') {
+        return auctionState.timeLeftFormatted;
+      }
+      final dtTime = auctionDetails?.timeLeftFormatted;
+      if (dtTime != null && dtTime.isNotEmpty) {
+        return dtTime;
+      }
+      if (listing.auctionEndTime != null) {
+        final diff = listing.auctionEndTime!.difference(DateTime.now());
+        if (diff.isNegative) return 'Ended';
+        if (diff.inDays > 0) return '${diff.inDays}d ${diff.inHours % 24}h';
+        if (diff.inHours > 0) return '${diff.inHours}h ${diff.inMinutes % 60}m';
+        if (diff.inMinutes > 0) return '${diff.inMinutes}m ${diff.inSeconds % 60}s';
+        return '${diff.inSeconds}s';
+      }
+      return 'Ending soon';
+    }
+    final timeLeft = computeTimeLeft();
+    final recentBids = (liveStatus?.liveBidFeed.isNotEmpty == true)
+        ? liveStatus!.liveBidFeed
+        : (auctionDetails?.recentBids.isNotEmpty == true
+            ? auctionDetails!.recentBids
+            : <BidHistoryItemModel>[]);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -246,13 +295,67 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: 100),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // Top Min Next Bid Bar (Only for Live Auction)
+          if (!isDirectSale)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Min next bid: ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        currencyFormatter.format(minNextBid),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(
+                    height: 36,
+                    child: ElevatedButton(
+                      onPressed: () => context.push('/auction/${listing.id}/bid'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      ),
+                      child: const Text(
+                        'Place Bid',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: Stack(
               children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 100),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                 // Hero Image / Video Carousel
                 Container(
                   height: 320,
@@ -424,9 +527,9 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                         top: 16,
                         left: 16,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: AppTheme.primary,
+                            color: isDirectSale ? AppTheme.primary : const Color(0xFFEF4444),
                             borderRadius: BorderRadius.circular(20),
                             boxShadow: [
                               BoxShadow(
@@ -436,14 +539,30 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                               )
                             ],
                           ),
-                          child: Text(
-                            isDirectSale ? 'Direct' : 'Auction',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.3,
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (!isDirectSale) ...[
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                              ],
+                              Text(
+                                isDirectSale ? 'Direct' : 'LIVE AUCTION',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -539,6 +658,144 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                   ),
                 ),
 
+                // Thumbnail Selector Strip (Image 1 Screen 2)
+                if (mediaList.length > 1)
+                  Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    child: SizedBox(
+                      height: 56,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: mediaList.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (ctx, i) {
+                          final isSelected = i == _currentImageIndex;
+                          final item = mediaList[i];
+                          return GestureDetector(
+                            onTap: () {
+                              _pageController.animateToPage(
+                                i,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSelected ? const Color(0xFFEF4444) : const Color(0xFFE2E8F0),
+                                  width: isSelected ? 2.5 : 1,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    CachedNetworkImage(
+                                      imageUrl: ApiClient.resolveMediaUrl(item.url),
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, __) => Container(color: const Color(0xFFF1F5F9)),
+                                      errorWidget: (_, __, ___) => const Icon(Icons.image, size: 20, color: Colors.grey),
+                                    ),
+                                    if (item.isVideo)
+                                      Container(
+                                        color: Colors.black38,
+                                        child: const Center(
+                                          child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+
+                // Teal Live Auction Card (Image 1 Screen 2)
+                if (!isDirectSale)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D3B3F),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF0D3B3F).withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'CURRENT HIGHEST BID',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF99F6E4),
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              currencyFormatter.format(currentHighestBid),
+                              style: const TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$totalBids bids · $watching watching',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFFCCFBF1),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.access_time_rounded, color: Colors.white, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                timeLeft,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // Main Info Header
                 Container(
                   color: Colors.white,
@@ -556,31 +813,33 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            listing.formattedPrice,
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.primary,
+                      if (isDirectSale) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                              listing.formattedPrice,
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.primary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            currencyFormatter.format(listing.price * 1.35),
-                            style: const TextStyle(
-                              fontSize: 15,
-                              color: AppTheme.textSecondary,
-                              decoration: TextDecoration.lineThrough,
-                              fontWeight: FontWeight.w500,
+                            const SizedBox(width: 10),
+                            Text(
+                              currencyFormatter.format(listing.price * 1.35),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                color: AppTheme.textSecondary,
+                                decoration: TextDecoration.lineThrough,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       Row(
                         children: [
                           Container(
@@ -610,6 +869,39 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 14),
+                      // Key Specs Chips
+                      Builder(
+                        builder: (context) {
+                          final chips = <String>[];
+                          if (listing.subcategory != null && listing.subcategory!.trim().isNotEmpty) {
+                            chips.add(listing.subcategory!.trim());
+                          } else if (listing.categoryName != null && listing.categoryName!.trim().isNotEmpty) {
+                            chips.add(listing.categoryName!.trim());
+                          }
+                          chips.add(listing.formattedCondition);
+                          if (!listing.hasDamage) {
+                            chips.add('Flawless Condition');
+                          } else if (listing.damageDetails != null && listing.damageDetails!.trim().isNotEmpty) {
+                            chips.add(listing.damageDetails!.trim());
+                          }
+                          if (listing.locality != null && listing.locality!.trim().isNotEmpty) {
+                            chips.add(listing.locality!.trim());
+                          } else if (listing.city != null && listing.city!.trim().isNotEmpty) {
+                            chips.add(listing.city!.trim());
+                          }
+                          if (!isDirectSale) {
+                            chips.add('Verified Auction');
+                          } else {
+                            chips.add('Instant Buy');
+                          }
+                          return Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: chips.map((c) => _buildSpecChip(c)).toList(),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -807,6 +1099,153 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                   ),
                 ),
 
+                // Bid History Card (Image 1 Screen 2)
+                if (!isDirectSale) ...[
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Bid History (${recentBids.length})',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                              if (recentBids.isNotEmpty)
+                                const Text(
+                                  'Live',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF10B981),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          if (recentBids.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Center(
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.gavel_outlined, size: 36, color: Colors.grey.shade400),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'No bids placed yet',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blueGrey.shade700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Be the first to place a bid on this item!',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            ...recentBids.take(6).map((b) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: b.isHighest ? const Color(0xFF004E54) : const Color(0xFFF1F5F9),
+                                    child: Text(
+                                      b.bidderInitials,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: b.isHighest ? Colors.white : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              b.isCurrentUser ? 'You' : b.bidderName,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                                color: b.isCurrentUser ? const Color(0xFF004E54) : AppTheme.textPrimary,
+                                              ),
+                                            ),
+                                            if (b.isHighest) ...[
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFDCFCE7),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: const Text(
+                                                  'HIGHEST',
+                                                  style: TextStyle(
+                                                    fontSize: 9.5,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF15803D),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          b.relativeTime,
+                                          style: const TextStyle(
+                                            fontSize: 11.5,
+                                            color: Color(0xFF94A3B8),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Text(
+                                    currencyFormatter.format(b.amount),
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: b.isHighest ? const Color(0xFFEF4444) : AppTheme.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 24),
               ],
             ),
@@ -850,7 +1289,7 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                         child: ElevatedButton(
                           onPressed: _onMakeOffer,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primary,
+                            backgroundColor: isDirectSale ? AppTheme.primary : const Color(0xFFEF4444),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -879,6 +1318,9 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
           ),
         ],
       ),
+    ),
+  ],
+),
     );
   }
 
@@ -926,6 +1368,32 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
           fontWeight: FontWeight.w700,
           color: Color(0xFF15803D),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSpecChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_rounded, color: Color(0xFF16A34A), size: 14),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF15803D),
+            ),
+          ),
+        ],
       ),
     );
   }

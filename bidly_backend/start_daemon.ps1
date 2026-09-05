@@ -32,5 +32,22 @@ if ($adbPath) {
 $jarPath = Join-Path $PSScriptRoot "build\libs\bidly-backend-0.0.1-SNAPSHOT.jar"
 $allArgs = $jvmArgs + @("-jar", "`"$jarPath`"")
 
-Start-Process "javaw" -ArgumentList $allArgs -WorkingDirectory $PSScriptRoot
-Write-Host "Started Bidly backend via javaw daemon."
+$javaBin = "javaw"
+$candidateJdks = @(
+    "C:\Program Files\Android\Android Studio\jbr",
+    "C:\Program Files\Java\jdk-21",
+    "C:\Program Files\Java\jdk-17"
+)
+foreach ($jdk in $candidateJdks) {
+    if (Test-Path "$jdk\bin\javaw.exe") {
+        $javaBin = "$jdk\bin\javaw.exe"
+        break
+    } elseif (Test-Path "$jdk\bin\java.exe") {
+        $javaBin = "$jdk\bin\java.exe"
+        break
+    }
+}
+
+Start-Process $javaBin -ArgumentList $allArgs -WorkingDirectory $PSScriptRoot
+Write-Host "Started Bidly backend via daemon ($javaBin)."
+

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/auction_model.dart';
 import '../providers/auction_provider.dart';
@@ -46,11 +47,11 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     super.dispose();
   }
 
-  void _showIncreaseBidModal(BuildContext context, AuctionDetailsModel details, double currentHighest, double userBid) {
+  void _showIncreaseBidModal(BuildContext context, AuctionDetailsModel details, double currentHighest, double userBid, {double? initialAmount}) {
     final live = ref.read(auctionProvider).liveStatus;
     final authoritativeHighest = live?.currentHighestBid ?? details.currentHighestBid;
     final minInc = details.minBidIncrement > 0 ? details.minBidIncrement : 500.0;
-    double newAmount = authoritativeHighest + minInc;
+    double newAmount = initialAmount ?? (authoritativeHighest + minInc);
 
     final wallet = ref.read(auctionProvider).wallet;
     final availableBalance = wallet?.availableBalance ?? 0.0;
@@ -348,15 +349,28 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(auctionProvider, (prev, next) {
+      final prevEnded = prev?.liveStatus?.isAuctionEnded ?? prev?.auctionDetails?.isAuctionEnded ?? false;
+      final nextEnded = next.liveStatus?.isAuctionEnded ?? next.auctionDetails?.isAuctionEnded ?? false;
+      if (!prevEnded && nextEnded && mounted) {
+        ref.read(auctionProvider.notifier).fetchAuctionWinner(widget.listingId).then((winner) {
+          if (winner != null && mounted && context.mounted) {
+            AuctionWinnerDialog.show(context, winner: winner, listingId: widget.listingId);
+          }
+        });
+      }
+    });
+
     final state = ref.watch(auctionProvider);
     final details = state.auctionDetails;
     final live = state.liveStatus;
     final wallet = state.wallet;
 
     if (details == null && state.isLoading) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF004E54))),
+      return const BidlyLoadingScreen(
+        message: 'Connecting to live auction...',
+        appBarTitle: 'Auction Tracker',
+        showBackButton: true,
       );
     }
 
@@ -578,6 +592,24 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                       ],
                     ),
                   ),
+                  if (isOutbid) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        _buildTrackerQuickAdd('+₹1,000', () {
+                          _showIncreaseBidModal(context, details, currentHighest, userBid, initialAmount: currentHighest + 1000);
+                        }),
+                        const SizedBox(width: 8),
+                        _buildTrackerQuickAdd('+₹2,000', () {
+                          _showIncreaseBidModal(context, details, currentHighest, userBid, initialAmount: currentHighest + 2000);
+                        }),
+                        const SizedBox(width: 8),
+                        _buildTrackerQuickAdd('+₹5,000', () {
+                          _showIncreaseBidModal(context, details, currentHighest, userBid, initialAmount: currentHighest + 5000);
+                        }),
+                      ],
+                    ),
+                  ],
                 ] else ...[
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -767,41 +799,67 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                               ),
                             ),
                           ))
-                    : Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 48,
-                              child: OutlinedButton.icon(
-                                onPressed: () => _showIncreaseBidModal(context, details, currentHighest, userBid),
-                                icon: const Icon(Icons.arrow_upward_rounded, size: 18, color: Color(0xFF004E54)),
-                                label: const Text('Increase Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF004E54))),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Color(0xFF004E54), width: 1.5),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
+                    : (isAuctionEnded
+                        ? SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final winner = await ref.read(auctionProvider.notifier).fetchAuctionWinner(widget.listingId);
+                                if (winner != null && context.mounted) {
+                                  AuctionWinnerDialog.show(context, winner: winner, listingId: widget.listingId);
+                                } else if (context.mounted) {
+                                  context.push('/auction/${widget.listingId}/won');
+                                }
+                              },
+                              icon: const Icon(Icons.emoji_events_outlined, size: 20),
+                              label: Text(
+                                isWinning ? 'Claim Your Won Item' : 'View Auction Results',
+                                style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isWinning ? const Color(0xFF10B981) : const Color(0xFF004E54),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 48,
-                              child: ElevatedButton.icon(
-                                onPressed: () => context.push('/listing/${widget.listingId}'),
-                                icon: const Icon(Icons.remove_red_eye_outlined, size: 18),
-                                label: const Text('View Product', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF004E54),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 48,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _showIncreaseBidModal(context, details, currentHighest, userBid),
+                                    icon: const Icon(Icons.arrow_upward_rounded, size: 18, color: Color(0xFF004E54)),
+                                    label: const Text('Increase Bid', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF004E54))),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFF004E54), width: 1.5),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: SizedBox(
+                                  height: 48,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => context.push('/listing/${widget.listingId}'),
+                                    icon: const Icon(Icons.remove_red_eye_outlined, size: 18),
+                                    label: const Text('View Product', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF004E54),
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )),
               ),
             ),
           ),
@@ -856,6 +914,32 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTrackerQuickAdd(String label, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFFFEE2E2),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFFCA5A5)),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFFB91C1C),
+            ),
+          ),
+        ),
+      ),
     );
   }
 

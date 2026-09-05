@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../models/auction_model.dart';
@@ -193,7 +194,7 @@ class OrderNotifier extends StateNotifier<OrderState> {
     required String comment,
     List<String> photoUrls = const [],
   }) async {
-    state = state.copyWith(isSubmittingReview: true);
+    state = state.copyWith(isSubmittingReview: true, errorMessage: null);
     try {
       final res = await _apiClient.post('/reviews', data: {
         'orderId': orderId,
@@ -202,13 +203,33 @@ class OrderNotifier extends StateNotifier<OrderState> {
         'photoUrls': photoUrls,
       });
       if (res.data != null && res.data['success'] == true) {
-        state = state.copyWith(isSubmittingReview: false, isReviewSuccess: true);
+        state = state.copyWith(isSubmittingReview: false, isReviewSuccess: true, errorMessage: null);
         return true;
+      } else {
+        final msg = res.data?['message']?.toString() ?? 'Failed to submit review';
+        state = state.copyWith(isSubmittingReview: false, errorMessage: msg);
+        return false;
       }
-    } catch (_) {
-      state = state.copyWith(isSubmittingReview: false);
+    } catch (e) {
+      String msg = 'Failed to submit review';
+      if (e is DioException) {
+        msg = e.response?.data?['message']?.toString() ?? e.message ?? msg;
+      } else {
+        msg = e.toString();
+      }
+      state = state.copyWith(isSubmittingReview: false, errorMessage: msg);
+      return false;
     }
-    return false;
+  }
+
+  Future<Map<String, dynamic>?> fetchOrderReview(String orderId) async {
+    try {
+      final res = await _apiClient.get('/reviews/order/$orderId');
+      if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
+        return res.data['data'] as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<bool> submitReport({

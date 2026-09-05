@@ -177,7 +177,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'listingDetail',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
-          final listing = state.extra as ListingModel?;
+          ListingModel? listing;
+          if (state.extra is ListingModel) {
+            listing = state.extra as ListingModel;
+          } else if (state.extra is Map<String, dynamic>) {
+            final map = state.extra as Map<String, dynamic>;
+            listing = map['listing'] as ListingModel?;
+          }
           return ListingDetailScreen(listingId: id, initialListing: listing);
         },
       ),
@@ -189,6 +195,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ListingModel? listing;
           String? buyerId = state.uri.queryParameters['buyerId'];
           String? offerId = state.uri.queryParameters['offerId'];
+          String? orderId = state.uri.queryParameters['orderId'];
           String? buyerName = state.uri.queryParameters['buyerName'];
           String? roomId = state.uri.queryParameters['roomId'];
           String? productTitle;
@@ -204,6 +211,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             listing = map['listing'] as ListingModel?;
             buyerId ??= map['buyerId'] as String?;
             offerId ??= map['offerId'] as String?;
+            orderId ??= map['orderId'] as String?;
             buyerName ??= map['buyerName'] as String?;
             roomId ??= map['roomId'] as String?;
             productTitle = map['productTitle'] as String?;
@@ -225,6 +233,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             sellerId: sellerId,
             isSellerView: isSellerView,
             offerId: offerId,
+            orderId: orderId,
             buyerName: buyerName,
             roomId: roomId,
             productTitle: productTitle,
@@ -259,6 +268,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.auctionWon,
         name: 'auctionWon',
+        builder: (ctx, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return AuctionWonScreen(listingId: id);
+        },
+      ),
+      GoRoute(
+        path: '/auctions/:id/won',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
           return AuctionWonScreen(listingId: id);

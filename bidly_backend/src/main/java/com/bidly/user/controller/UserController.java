@@ -75,4 +75,14 @@ public class UserController {
         UserDto userDto = userService.updateProfile(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Profile updated successfully", userDto));
     }
+
+    /**
+     * POST /api/user/sync-contacts — Sync device contacts to find Bidly users
+     */
+    @PostMapping("/sync-contacts")
+    public ResponseEntity<ApiResponse<java.util.List<UserDto>>> syncContacts(
+            @RequestBody com.bidly.user.dto.SyncContactsRequest request) {
+        java.util.List<UserDto> users = userService.syncContacts(request);
+        return ResponseEntity.ok(ApiResponse.success(users));
+    }
 }

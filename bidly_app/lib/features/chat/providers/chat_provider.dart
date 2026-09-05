@@ -281,7 +281,10 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
       List<ChatMessageModel> updated;
       if (existingIndex != -1) {
         updated = List<ChatMessageModel>.from(state.messages);
-        updated[existingIndex] = newMsg;
+        final oldMsg = state.messages[existingIndex];
+        updated[existingIndex] = newMsg.copyWith(
+          localPath: newMsg.localPath ?? oldMsg.localPath,
+        );
       } else {
         updated = [...state.messages, newMsg];
       }
@@ -420,6 +423,7 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
       content: caption,
       type: 'IMAGE',
       mediaUrl: trimmedPath,
+      localPath: trimmedPath,
       status: 'SENDING',
       isMine: true,
       createdAt: DateTime.now(),
@@ -478,7 +482,9 @@ class ChatRoomNotifier extends StateNotifier<ChatRoomState> {
       if (res.data != null && res.data['success'] == true) {
         final serverMsg = ChatMessageModel.fromJson(res.data['data'], currentUserId: currentUserId);
         final updated = state.messages.map((m) =>
-            (m.clientMessageId == clientMessageId || m.id == optimisticMsg.id) ? serverMsg : m).toList();
+            (m.clientMessageId == clientMessageId || m.id == optimisticMsg.id)
+                ? serverMsg.copyWith(localPath: trimmedPath)
+                : m).toList();
         state = state.copyWith(messages: updated, isSending: false);
         return true;
       } else {
@@ -719,6 +725,10 @@ class ChatRoomListNotifier extends StateNotifier<ChatRoomListState> {
     } catch (e) {
       if (!isSilent) state = state.copyWith(isLoading: false, error: e.toString());
     }
+  }
+
+  void updateRooms(List<ChatRoomModel> list) {
+    state = state.copyWith(rooms: list, isLoading: false, error: null);
   }
 
   void onNewMessageArrived(ChatEventModel event) {

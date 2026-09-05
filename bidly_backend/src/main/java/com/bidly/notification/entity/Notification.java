@@ -62,16 +62,19 @@ public class Notification extends BaseEntity {
 
     public enum NotificationType {
         NEW_OFFER,
+        OFFER_COUNTERED,
         OFFER_ACCEPTED,
         OFFER_REJECTED,
         MEETUP_SCHEDULED,
+        MEETUP_CONFIRMED,
         OTP_READY,
         OTP_VERIFIED,
         TRANSACTION_COMPLETED,
         ITEM_SOLD,
         AUCTION_WON,
         WINNER_SELECTED,
-        SHIPPED
+        SHIPPED,
+        REVIEW_RECEIVED
     }
 
     public Notification() {}

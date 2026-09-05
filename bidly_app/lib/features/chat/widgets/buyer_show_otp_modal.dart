@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../auction/providers/order_provider.dart';
 import '../../auction/screens/review_rating_screen.dart';
 
 class BuyerShowOtpModal extends ConsumerStatefulWidget {
@@ -30,13 +31,13 @@ class _BuyerShowOtpModalState extends ConsumerState<BuyerShowOtpModal> {
   bool _isLoading = true;
   bool _isConfirmingDelivery = false;
   String _otp = '------';
-  String _buyerName = 'Buyer';
-  String _meetupDate = 'Jun 23, 2026';
-  String _meetupTime = '5:00 PM';
-  String _meetupLocation = 'T.Nagar, Chennai';
+  String _buyerName = '';
+  String _meetupDate = '';
+  String _meetupTime = '';
+  String _meetupLocation = '';
   DateTime? _expiresAt;
   Timer? _countdownTimer;
-  String _timeRemaining = '04:53';
+  String _timeRemaining = '05:00';
 
   @override
   void initState() {
@@ -56,30 +57,46 @@ class _BuyerShowOtpModalState extends ConsumerState<BuyerShowOtpModal> {
       final res = await apiClient.get('/orders/${widget.orderId}/otp');
       if (res.data != null && res.data['success'] == true && res.data['data'] != null) {
         final data = res.data['data'] as Map<String, dynamic>;
+        if (mounted) {
+          setState(() {
+            _otp = data['otp']?.toString() ?? '------';
+            _buyerName = data['buyerName']?.toString() ?? '';
+            _meetupDate = data['meetupDateFormatted']?.toString() ?? '';
+            _meetupTime = data['meetupTimeFormatted']?.toString() ?? '';
+            _meetupLocation = data['meetupLocation']?.toString() ?? '';
+            if (data['otpExpiresAt'] != null) {
+              _expiresAt = DateTime.tryParse(data['otpExpiresAt'].toString());
+            } else {
+              _expiresAt = DateTime.now().add(const Duration(minutes: 5));
+            }
+            _isLoading = false;
+          });
+          _startTimer();
+          return;
+        }
+      }
+    } catch (_) {
+      // Read realtime active order details from provider
+      final order = ref.read(orderProvider).order;
+      if (mounted) {
         setState(() {
-          _otp = data['otp']?.toString() ?? '------';
-          _buyerName = data['buyerName']?.toString() ?? 'Buyer';
-          _meetupDate = data['meetupDateFormatted']?.toString() ?? 'Jun 23, 2026';
-          _meetupTime = data['meetupTimeFormatted']?.toString() ?? '5:00 PM';
-          _meetupLocation = data['meetupLocation']?.toString() ?? 'T.Nagar, Chennai';
-          if (data['otpExpiresAt'] != null) {
-            _expiresAt = DateTime.tryParse(data['otpExpiresAt'].toString());
-          } else {
-            _expiresAt = DateTime.now().add(const Duration(minutes: 5));
+          if (order?.meetupOtp != null && order!.meetupOtp!.isNotEmpty) {
+            _otp = order.meetupOtp!;
           }
+          if (order?.buyerName != null) {
+            _buyerName = order!.buyerName;
+          }
+          if (order?.meetupLocation != null) {
+            _meetupLocation = order!.meetupLocation!;
+          }
+          if (order?.meetupTime != null) {
+            _meetupTime = order!.meetupTime!;
+          }
+          _expiresAt = DateTime.now().add(const Duration(minutes: 5));
           _isLoading = false;
         });
         _startTimer();
-        return;
       }
-    } catch (_) {
-      // Fallback defaults if offline or mock
-      setState(() {
-        if (_otp == '------') _otp = '325725';
-        _expiresAt = DateTime.now().add(const Duration(minutes: 5));
-        _isLoading = false;
-      });
-      _startTimer();
     }
   }
 

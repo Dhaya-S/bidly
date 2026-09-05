@@ -27,21 +27,26 @@ public class ReviewService {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final MediaService mediaService;
+    private final com.bidly.notification.service.NotificationService notificationService;
 
     public ReviewService(
             ReviewRepository reviewRepository,
             OrderRepository orderRepository,
             UserRepository userRepository,
-            MediaService mediaService) {
+            MediaService mediaService,
+            com.bidly.notification.service.NotificationService notificationService) {
         this.reviewRepository = reviewRepository;
         this.orderRepository = orderRepository;
         this.userRepository = userRepository;
         this.mediaService = mediaService;
+        this.notificationService = notificationService;
     }
 
     @Transactional
     public ReviewDto createReview(UUID currentUserId, CreateReviewRequest req) {
         Order order = orderRepository.findById(req.getOrderId())
+                .or(() -> orderRepository.findFirstByListingIdOrderByCreatedAtDesc(req.getOrderId()))
+                .or(() -> orderRepository.findByOfferId(req.getOrderId()))
                 .orElseThrow(() -> BidlyException.notFound("Order not found: " + req.getOrderId()));
 
         if (!order.getBuyer().getId().equals(currentUserId)) {
@@ -55,7 +60,7 @@ public class ReviewService {
         }
 
         if (reviewRepository.existsByOrderId(order.getId())) {
-            throw BidlyException.badRequest("You have already reviewed this order");
+            return reviewRepository.findByOrderId(order.getId()).map(this::mapToDto).orElse(null);
         }
 
         User reviewer = userRepository.findById(currentUserId)
@@ -77,12 +82,32 @@ public class ReviewService {
         }
 
         Review saved = reviewRepository.save(review);
+
+        // Notify Seller of new review
+        notificationService.sendNotification(
+                order.getSeller(),
+                com.bidly.notification.entity.Notification.NotificationType.REVIEW_RECEIVED,
+                "New Review Received",
+                reviewer.getName() + " left a " + req.getRating() + "-star review for " + order.getListing().getTitle(),
+                order.getListing(),
+                order.getOffer(),
+                order,
+                "View Review",
+                "/chat/offer/" + order.getListing().getId(),
+                order.getId(),
+                null
+        );
+
         return mapToDto(saved);
     }
 
     @Transactional(readOnly = true)
     public ReviewDto getReviewByOrderId(UUID orderId) {
         return reviewRepository.findByOrderId(orderId)
+                .or(() -> orderRepository.findFirstByListingIdOrderByCreatedAtDesc(orderId)
+                        .flatMap(o -> reviewRepository.findByOrderId(o.getId())))
+                .or(() -> orderRepository.findByOfferId(orderId)
+                        .flatMap(o -> reviewRepository.findByOrderId(o.getId())))
                 .map(this::mapToDto)
                 .orElse(null);
     }

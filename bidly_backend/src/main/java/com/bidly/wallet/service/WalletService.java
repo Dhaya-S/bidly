@@ -37,7 +37,7 @@ public class WalletService {
 
     @Transactional
     public Wallet getOrCreateWalletEntity(UUID userId) {
-        return walletRepository.findByUserId(userId).orElseGet(() -> {
+        Wallet wallet = walletRepository.findByUserId(userId).orElseGet(() -> {
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> BidlyException.notFound("User not found: " + userId));
             Wallet newWallet = new Wallet(user);
@@ -58,6 +58,16 @@ public class WalletService {
             }
             return walletRepository.save(newWallet);
         });
+
+        // Ensure development test wallets always maintain at least ₹50,000 baseline when unreserved
+        if (devWalletEnabled && devInitialBalance != null
+                && wallet.getBalance().compareTo(devInitialBalance) < 0
+                && wallet.getReservedBalance().compareTo(BigDecimal.ZERO) == 0) {
+            wallet.setBalance(devInitialBalance);
+            wallet = walletRepository.save(wallet);
+        }
+
+        return wallet;
     }
 
     @Transactional(readOnly = true)

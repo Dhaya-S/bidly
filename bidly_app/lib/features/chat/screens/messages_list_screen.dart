@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/chat_event_model.dart';
+import '../models/chat_room_model.dart';
+import '../providers/chat_provider.dart';
 import '../services/chat_websocket_service.dart';
 import '../widgets/in_app_message_banner.dart';
 import 'chat_detail_screen.dart';
@@ -92,10 +94,63 @@ class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
   List<ChatThreadModel> _buyerThreads = [];
   List<ChatThreadModel> _sellerThreads = [];
 
+  void _populateFromCache() {
+    final chatState = ref.read(chatRoomListProvider);
+    if (chatState.rooms.isNotEmpty) {
+      final currentUserId = ref.read(authProvider).user?.id;
+      final List<ChatThreadModel> buyers = [];
+      final List<ChatThreadModel> sellers = [];
+
+      for (final room in chatState.rooms) {
+        final otherName = room.otherUserName ?? (currentUserId == room.buyerId ? (room.sellerName ?? 'Seller') : (room.buyerName ?? 'Buyer'));
+        final otherRole = room.otherUserRole ?? (currentUserId == room.buyerId ? 'Seller' : 'Buyer');
+        final initials = otherName.isNotEmpty
+            ? otherName.trim().split(' ').map((s) => s.isNotEmpty ? s[0] : '').take(2).join().toUpperCase()
+            : 'U';
+
+        final thread = ChatThreadModel(
+          id: room.id,
+          userName: otherName,
+          userRole: otherRole,
+          productSubject: 're: ${room.listingTitle ?? 'Listing'}',
+          lastMessage: room.lastMessagePreview ?? 'Tap to view conversation',
+          timeAgo: _formatTimeAgo(room.lastMessageAt ?? room.createdAt),
+          unreadCount: room.unreadCount,
+          userInitials: initials,
+          productTitle: room.listingTitle ?? 'Listing',
+          productPrice: room.listingPrice,
+          deliveryType: 'Meetup',
+          listingId: room.listingId,
+          buyerId: room.buyerId,
+          sellerId: room.sellerId,
+          listingImageUrl: room.listingImageUrl,
+        );
+
+        if (currentUserId != null && currentUserId == room.buyerId) {
+          buyers.add(thread);
+        } else if (currentUserId != null && currentUserId == room.sellerId) {
+          sellers.add(thread);
+        } else {
+          if (otherRole.toLowerCase() == 'seller') {
+            buyers.add(thread);
+          } else {
+            sellers.add(thread);
+          }
+        }
+      }
+
+      _buyerThreads = buyers;
+      _sellerThreads = sellers;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _fetchRooms();
+    _populateFromCache();
+    final hasCache = _buyerThreads.isNotEmpty || _sellerThreads.isNotEmpty;
+    _isLoading = !hasCache;
+    _fetchRooms(isSilent: hasCache);
     _initWebSocket();
   }
 
@@ -288,6 +343,11 @@ class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
             }
           }
         }
+
+        final roomsList = roomsJson
+            .map((r) => ChatRoomModel.fromJson(r as Map<String, dynamic>))
+            .toList();
+        ref.read(chatRoomListProvider.notifier).updateRooms(roomsList);
 
         if (mounted) {
           setState(() {
@@ -542,9 +602,7 @@ class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
             // ── Card Container with Conversation Items ────────
             Expanded(
               child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: Color(0xFF005459)),
-                    )
+                  ? _buildLoadingSkeleton()
                   : RefreshIndicator(
                       onRefresh: _fetchRooms,
                       color: const Color(0xFF005459),
@@ -770,6 +828,62 @@ class _MessagesListScreenState extends ConsumerState<MessagesListScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLoadingSkeleton() {
+    return ListView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      itemCount: 4,
+      itemBuilder: (context, index) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12.0),
+          padding: const EdgeInsets.all(14.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0).withValues(alpha: 0.8)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF1F5F9),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 130,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

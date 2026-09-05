@@ -42,4 +42,10 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     @Query("SELECT COUNT(m) FROM ChatMessage m JOIN ChatRoom r ON m.roomId = r.id WHERE (r.buyerId = :userId OR r.sellerId = :userId) AND m.senderId <> :userId AND m.readAt IS NULL")
     long countUnreadMessagesForUser(@Param("userId") UUID userId);
+
+    @Query("SELECT m.roomId, COUNT(m) FROM ChatMessage m WHERE m.roomId IN :roomIds AND m.senderId <> :userId AND m.readAt IS NULL GROUP BY m.roomId")
+    List<Object[]> countUnreadInRooms(@Param("roomIds") List<UUID> roomIds, @Param("userId") UUID userId);
+
+    @Query("SELECT m FROM ChatMessage m WHERE m.roomId IN :roomIds ORDER BY m.createdAt DESC")
+    List<ChatMessage> findRecentMessagesInRooms(@Param("roomIds") List<UUID> roomIds);
 }

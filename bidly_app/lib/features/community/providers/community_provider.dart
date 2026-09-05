@@ -470,6 +470,21 @@ class CommunityNotifier extends StateNotifier<CommunityState> {
     state = state.copyWith(selectedCommunity: community);
     fetchMembers(community.id);
   }
+
+  /// Sync device phone numbers with backend to find Bidly users
+  Future<List<Map<String, dynamic>>> syncContacts(List<String> phoneNumbers) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/user/sync-contacts',
+        data: {'phoneNumbers': phoneNumbers},
+      );
+      if (response.data != null && response.data['success'] == true) {
+        final list = response.data['data'] as List;
+        return list.map((item) => item as Map<String, dynamic>).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
 }
 
 final communityProvider = StateNotifierProvider<CommunityNotifier, CommunityState>((ref) {

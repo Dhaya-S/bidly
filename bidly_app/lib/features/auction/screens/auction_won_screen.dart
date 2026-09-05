@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../models/auction_model.dart';
 import '../providers/auction_provider.dart';
 import '../providers/order_provider.dart';
@@ -47,6 +48,14 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
         _selectedDeliveryMethod = 1;
       }
       _methodInitialized = true;
+    }
+
+    if ((auctionState.isLoading || orderState.isLoading) && details == null && order == null) {
+      return const BidlyLoadingScreen(
+        message: 'Loading auction details...',
+        appBarTitle: 'Auction Won',
+        showBackButton: true,
+      );
     }
 
     final wonPrice = order?.wonAmount ?? details?.currentHighestBid ?? 0.0;

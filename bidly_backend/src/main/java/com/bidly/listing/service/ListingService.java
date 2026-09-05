@@ -134,9 +134,8 @@ public class ListingService {
                     .orElseThrow(() -> BidlyException.notFound("Community"));
             boolean isCreator = comm.getCreatedBy() != null && comm.getCreatedBy().equals(seller.getId());
             boolean isMember = isCreator || memberRepository.existsByCommunityIdAndUserId(comm.getId(), seller.getId());
-            boolean isAdmin = isCreator || memberRepository.existsByCommunityIdAndUserIdAndRole(comm.getId(), seller.getId(), "ADMIN");
-            if (!isMember || (!isCreator && !isAdmin)) {
-                throw BidlyException.forbidden("Only the community creator can list products in this community");
+            if (!isMember) {
+                throw BidlyException.forbidden("You must be an active member to list products in this community");
             }
             listing.setSellingScope("COMMUNITY");
             listing.setCommunityId(comm.getId());
@@ -747,13 +746,7 @@ public class ListingService {
                 .orElseThrow(() -> BidlyException.notFound("Listing not found: " + id));
 
         if (listing.getCommunityId() != null) {
-            if (currentUserId == null) {
-                throw BidlyException.unauthorized("Authentication required to view this community listing");
-            }
-            boolean isMember = memberRepository.existsByCommunityIdAndUserId(listing.getCommunityId(), currentUserId);
-            if (!isMember) {
-                throw BidlyException.forbidden("You must be an active member of this community to view this listing");
-            }
+            // Non-members can view the listing, but interaction is restricted on the frontend
         }
 
         return mapToSummaryDto(listing, currentUserId);

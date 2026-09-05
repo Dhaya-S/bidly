@@ -99,10 +99,7 @@ public class CommunityPostService {
         Community community = communityRepository.findById(communityId)
                 .orElseThrow(() -> BidlyException.notFound("Community"));
 
-        boolean isMember = memberRepository.existsByCommunityIdAndUserId(communityId, currentUserId);
-        if (!isMember) {
-            throw BidlyException.forbidden("You must be an active member of this community to view its posts");
-        }
+        // Non-members can view community posts
 
         long t0 = System.currentTimeMillis();
         Page<CommunityPost> postsPage = postRepository.findByCommunityIdOrderByCreatedAtDesc(communityId, PageRequest.of(page, size));
@@ -138,10 +135,7 @@ public class CommunityPostService {
             if (currentUserId == null) {
                 throw BidlyException.unauthorized("Authentication required to view this community post");
             }
-            boolean isMember = memberRepository.existsByCommunityIdAndUserId(post.getCommunity().getId(), currentUserId);
-            if (!isMember) {
-                throw BidlyException.forbidden("You must be an active member of this community to view this post");
-            }
+            // Non-members can view the post
         }
 
         Set<UUID> likedPostIds = (currentUserId != null && postLikeRepository.existsByUserIdAndPostId(currentUserId, postId))
@@ -171,10 +165,9 @@ public class CommunityPostService {
 
             boolean isCreator = community.getCreatedBy() != null && community.getCreatedBy().equals(authorId);
             boolean isMember = isCreator || memberRepository.existsByCommunityIdAndUserId(community.getId(), authorId);
-            boolean isAdmin = isCreator || memberRepository.existsByCommunityIdAndUserIdAndRole(community.getId(), authorId, "ADMIN");
 
-            if (!isMember || (!isCreator && !isAdmin)) {
-                throw BidlyException.forbidden("Only the community creator can publish posts in this community");
+            if (!isMember) {
+                throw BidlyException.forbidden("You must be an active member to publish posts in this community");
             }
         }
 

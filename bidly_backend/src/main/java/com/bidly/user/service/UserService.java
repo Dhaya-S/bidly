@@ -134,4 +134,22 @@ public class UserService {
         return userRepository.findById(userId)
                 .orElseThrow(() -> BidlyException.notFound("User"));
     }
+
+    /**
+     * Checks which phone numbers from the list belong to registered users.
+     */
+    public java.util.List<UserDto> syncContacts(com.bidly.user.dto.SyncContactsRequest request) {
+        if (request.getPhoneNumbers() == null || request.getPhoneNumbers().isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        
+        java.util.List<String> cleanedNumbers = request.getPhoneNumbers().stream()
+                .map(phone -> phone.replaceAll("[^0-9+]", ""))
+                .collect(java.util.stream.Collectors.toList());
+                
+        java.util.List<User> matchedUsers = userRepository.findByPhoneIn(cleanedNumbers);
+        return matchedUsers.stream()
+                .map(authService::mapToDto)
+                .collect(java.util.stream.Collectors.toList());
+    }
 }

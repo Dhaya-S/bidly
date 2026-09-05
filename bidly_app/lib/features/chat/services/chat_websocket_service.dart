@@ -37,8 +37,8 @@ class ChatWebSocketService {
     String? userId,
     String? token,
   }) {
-    if (_stompClient != null && _currentRoomId == roomId && _isConnected) {
-      debugPrint('[CHAT_WS] Already connected to room: $roomId');
+    if (_stompClient != null && _currentRoomId == roomId && _currentUserId == userId && _isConnected) {
+      debugPrint('[CHAT_WS] Already connected to room: $roomId for user: $userId');
       return;
     }
 
@@ -57,7 +57,7 @@ class ChatWebSocketService {
         url: wsUrl,
         onConnect: _onConnectCallback,
         beforeConnect: () async {
-          debugPrint('[CHAT_WS] CONNECT url=$wsUrl roomId=$roomId');
+          debugPrint('[CHAT_WS] CONNECT url=$wsUrl roomId=$roomId user=$userId');
         },
         onWebSocketError: (dynamic error) {
           debugPrint('[CHAT_WS] WEBSOCKET ERROR: $error');
@@ -146,9 +146,7 @@ class ChatWebSocketService {
         if (frame.body != null) {
           try {
             final json = jsonDecode(frame.body!) as Map<String, dynamic>;
-            if (json['notification'] != null && json['notification'] is Map) {
-              onNotification?.call(Map<String, dynamic>.from(json['notification'] as Map));
-            }
+            // Dedicated for chat stream events (messages, room unread count, etc.)
             final event = ChatEventModel.fromJson(json, currentUserId: _currentUserId);
             debugPrint('[CHAT_WS] USER_NOTIFICATION (chat) type=${event.eventType}');
             onEvent?.call(event);
@@ -170,7 +168,9 @@ class ChatWebSocketService {
           try {
             final json = jsonDecode(frame.body!) as Map<String, dynamic>;
             if (json['notification'] != null && json['notification'] is Map) {
-              onNotification?.call(Map<String, dynamic>.from(json['notification'] as Map));
+              final notifMap = Map<String, dynamic>.from(json['notification'] as Map);
+              notifMap['userId'] ??= userId;
+              onNotification?.call(notifMap);
             }
             final event = ChatEventModel.fromJson(json, currentUserId: _currentUserId);
             debugPrint('[CHAT_WS] USER_NOTIFICATION (notifications) type=${event.eventType}');
@@ -197,5 +197,6 @@ class ChatWebSocketService {
     }
     _isConnected = false;
     _currentRoomId = null;
+    _currentUserId = null;
   }
 }

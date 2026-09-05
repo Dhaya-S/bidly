@@ -226,13 +226,13 @@ public class OfferService {
 
         notificationService.sendNotification(
                 recipient,
-                com.bidly.notification.entity.Notification.NotificationType.NEW_OFFER,
+                com.bidly.notification.entity.Notification.NotificationType.OFFER_COUNTERED,
                 "Counter Offer Received",
                 counterSender + " sent a counter offer of ₹" + req.getCounterAmount().toBigInteger() + " on " + offer.getListing().getTitle(),
                 offer.getListing(),
                 saved,
                 null,
-                "View Offer",
+                "View Counter Offer",
                 "/chat/offer/" + offer.getListing().getId(),
                 saved.getId(),
                 counterMeta

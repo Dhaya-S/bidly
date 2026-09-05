@@ -30,6 +30,7 @@ class OfferChatScreen extends ConsumerStatefulWidget {
   final String? sellerId;
   final bool? isSellerView;
   final String? offerId;
+  final String? orderId;
   final String? buyerName;
   final String? roomId;
   final String? productTitle;
@@ -44,6 +45,7 @@ class OfferChatScreen extends ConsumerStatefulWidget {
     this.sellerId,
     this.isSellerView,
     this.offerId,
+    this.orderId,
     this.buyerName,
     this.roomId,
     this.productTitle,
@@ -129,7 +131,9 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
       buyerId: widget.buyerId,
     );
 
-    final Future<void> orderFuture = ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+    final Future<void> orderFuture = (widget.orderId != null && widget.orderId!.isNotEmpty)
+        ? ref.read(orderProvider.notifier).fetchOrder(widget.orderId!)
+        : ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
 
     final results = await Future.wait([roomFuture, offerFuture, orderFuture]);
     final room = results[0] as ChatRoomModel?;
@@ -2351,11 +2355,10 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
       location = order?.meetupLocation ?? (widget.listing?.locality?.isNotEmpty == true ? widget.listing!.locality! : 'Agreed Meeting Point');
     }
 
-    final orderId = activeOffer?.orderId ?? order?.id ?? meta['orderId']?.toString();
+    final orderId = activeOffer?.orderId ?? order?.id ?? meta['orderId']?.toString() ?? widget.orderId;
     final hasMeetupAccepted = ref.watch(chatRoomNotifierProvider).messages.any(
       (m) => m.type == 'MEETUP_ACCEPTED' ||
-             (m.parsedMetadata?['eventType'] == 'MEETUP_CONFIRMED') ||
-             (m.content != null && m.content!.contains('Meetup confirmed'))
+             (m.parsedMetadata?['eventType'] == 'MEETUP_CONFIRMED')
     );
     final isConfirmed = order?.isMeetupConfirmed == true ||
         (orderId != null && _confirmedMeetupOrderIds.contains(orderId)) ||
@@ -2598,20 +2601,21 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                           child: ElevatedButton(
                             onPressed: () async {
                               final messenger = ScaffoldMessenger.of(context);
-                              final effectiveOrderId = orderId ?? ref.read(orderProvider).order?.id;
+                              var effectiveOrderId = orderId ?? widget.orderId ?? ref.read(orderProvider).order?.id;
                               if (effectiveOrderId == null) {
                                 messenger.showSnackBar(
                                   const SnackBar(content: Text('Loading order details... Please tap again.')),
                                 );
-                                ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
-                                return;
+                                await ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                                effectiveOrderId = ref.read(orderProvider).order?.id;
                               }
+                              if (effectiveOrderId == null) return;
 
                               final ok = await ref.read(orderProvider.notifier).confirmMeetup(effectiveOrderId);
                               if (!mounted) return;
                               if (ok) {
                                 setState(() {
-                                  _confirmedMeetupOrderIds.add(effectiveOrderId);
+                                  _confirmedMeetupOrderIds.add(effectiveOrderId!);
                                 });
                                 messenger.showSnackBar(
                                   const SnackBar(
@@ -2645,10 +2649,19 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                           width: double.infinity,
                           height: 44,
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              final effectiveOrderId = orderId ?? ref.read(orderProvider).order?.id;
+                            onPressed: () async {
+                              var effectiveOrderId = orderId ?? widget.orderId ?? ref.read(orderProvider).order?.id;
+                              if (effectiveOrderId == null) {
+                                await ref.read(orderProvider.notifier).fetchOrderByListing(widget.listingId);
+                                effectiveOrderId = ref.read(orderProvider).order?.id;
+                              }
+                              if (!mounted) return;
                               if (effectiveOrderId != null) {
                                 BuyerShowOtpModal.show(context, orderId: effectiveOrderId);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Order details could not be found. Please try again.')),
+                                );
                               }
                             },
                             icon: const Icon(Icons.lock_open_rounded, size: 16, color: Colors.white),
@@ -3567,6 +3580,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
         trimmed.startsWith('chat/') ||
         trimmed.startsWith('listings/') ||
         trimmed.startsWith('users/') ||
+        trimmed.startsWith('reviews/') ||
         trimmed.startsWith('media/')) {
       return false;
     }
@@ -3580,8 +3594,11 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
   Widget _buildImageBubble(ChatMessageModel msg, bool isMe, String peerInitials) {
     final timeStr = msg.formattedTime;
     final mediaUrl = msg.mediaUrl ?? '';
-    final isLocal = _isLocalFile(mediaUrl);
-    final resolvedUrl = isLocal ? mediaUrl : ApiClient.resolveMediaUrl(mediaUrl);
+    final localPath = (msg.localPath != null && _isLocalFile(msg.localPath!))
+        ? msg.localPath!
+        : (_isLocalFile(mediaUrl) ? mediaUrl : null);
+    final isLocal = localPath != null;
+    final resolvedUrl = isLocal ? localPath : ApiClient.resolveMediaUrl(mediaUrl);
 
     final borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(18),
@@ -3632,7 +3649,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                     // Image rendering (Local instant file or Cached Remote CDN)
                     if (isLocal)
                       Image.file(
-                        File(mediaUrl),
+                        File(localPath),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _buildImageErrorWidget(),
                       )
@@ -3866,8 +3883,11 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
 
   void _openFullScreenViewer(ChatMessageModel msg) {
     final mediaUrl = msg.mediaUrl ?? '';
-    final isLocal = _isLocalFile(mediaUrl);
-    final resolvedUrl = isLocal ? mediaUrl : ApiClient.resolveMediaUrl(mediaUrl);
+    final localPath = (msg.localPath != null && _isLocalFile(msg.localPath!))
+        ? msg.localPath!
+        : (_isLocalFile(mediaUrl) ? mediaUrl : null);
+    final isLocal = localPath != null;
+    final resolvedUrl = isLocal ? localPath : ApiClient.resolveMediaUrl(mediaUrl);
 
     Navigator.of(context).push(
       PageRouteBuilder(

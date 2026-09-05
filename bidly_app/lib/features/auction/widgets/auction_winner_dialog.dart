@@ -177,7 +177,7 @@ class AuctionWinnerDialog extends ConsumerWidget {
                 onPressed: () {
                   Navigator.of(context).pop(); // Dismiss Winner Dialog
                   if (isWinner) {
-                    context.push('/auctions/$listingId/won');
+                    context.push('/auction/$listingId/won');
                   } else {
                     ChooseDeliveryMethodBottomSheet.show(
                       context,

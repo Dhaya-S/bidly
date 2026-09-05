@@ -78,8 +78,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-            child: Form(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              child: Form(
               key: _formKey,
               autovalidateMode: AutovalidateMode.onUserInteraction,
               child: Column(
@@ -203,12 +203,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   // Action Button
                   SizedBox(
                     width: double.infinity,
-                    height: 48,
+                    height: 50,
                     child: ElevatedButton(
                       onPressed: isLoading ? null : _handleSubmit,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primary,
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor: AppTheme.primary,
+                        disabledForegroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -219,8 +221,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               width: 22,
                               height: 22,
                               child: CircularProgressIndicator(
-                                color: Colors.white,
                                 strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
                             )
                           : Text(
@@ -229,6 +231,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 fontFamily: 'Poppins',
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
+                                color: Colors.white,
                               ),
                             ),
                     ),

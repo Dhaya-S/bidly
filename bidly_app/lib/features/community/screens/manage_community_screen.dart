@@ -6,6 +6,7 @@ import '../../../core/constants/app_theme.dart';
 import '../../sell/providers/sell_provider.dart';
 import '../models/community_model.dart';
 import '../providers/community_provider.dart';
+import 'add_community_member_screen.dart';
 
 class ManageCommunityScreen extends ConsumerStatefulWidget {
   final CommunityModel community;
@@ -189,87 +190,9 @@ class _ManageCommunityScreenState extends ConsumerState<ManageCommunityScreen> {
   }
 
   void _showAddMemberDialog() {
-    final phoneController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF004E54), size: 22),
-            SizedBox(width: 8),
-            Text(
-              'Add Member',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter the member\'s 10-digit mobile number:',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 12.5,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: phoneController,
-              keyboardType: TextInputType.phone,
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
-              decoration: InputDecoration(
-                hintText: '10-digit mobile number',
-                prefixText: '+91 ',
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final phone = phoneController.text.trim();
-              if (phone.isNotEmpty) {
-                Navigator.pop(ctx);
-                final success = await ref.read(communityProvider.notifier).addMember(
-                      communityId: _community.id,
-                      phone: phone,
-                    );
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(success ? 'Member added successfully!' : 'Failed to add member'),
-                      backgroundColor: success ? AppTheme.success : AppTheme.error,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF004E54),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Add', style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
-        ],
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AddCommunityMemberScreen(community: _community),
       ),
     );
   }

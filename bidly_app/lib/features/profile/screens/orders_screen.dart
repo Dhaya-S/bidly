@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../providers/orders_provider.dart';
 import 'product_history_screen.dart';
 
@@ -182,7 +183,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             // ── Order Cards List ───────────────────────────────
             Expanded(
               child: ordersState.isLoading && currentList.isEmpty
-                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF004E54)))
+                  ? const Center(child: BidlyLoadingIndicator(message: 'Loading orders...'))
                   : currentList.isEmpty
                       ? RefreshIndicator(
                           color: const Color(0xFF004E54),

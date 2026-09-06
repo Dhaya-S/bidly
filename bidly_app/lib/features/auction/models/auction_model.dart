@@ -1,6 +1,7 @@
 class AuctionDetailsModel {
   final String listingId;
   final String title;
+  final String? description;
   final String productCondition;
   final String? primaryImageUrl;
   final List<String> imageUrls;
@@ -37,6 +38,7 @@ class AuctionDetailsModel {
   AuctionDetailsModel({
     required this.listingId,
     required this.title,
+    this.description,
     required this.productCondition,
     this.primaryImageUrl,
     this.imageUrls = const [],
@@ -75,6 +77,7 @@ class AuctionDetailsModel {
     return AuctionDetailsModel(
       listingId: json['listingId'] ?? '',
       title: json['title'] ?? '',
+      description: json['description'],
       productCondition: json['productCondition'] ?? '',
       primaryImageUrl: json['primaryImageUrl'],
       imageUrls: (json['imageUrls'] as List?)?.map((e) => e.toString()).toList() ?? [],

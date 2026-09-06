@@ -28,6 +28,9 @@ class PostModel {
   final double? currentBid;
   final DateTime? auctionEndTime;
   final int bidsCount;
+  final String? listingTitle;
+  final String? listingDescription;
+  final double distanceKm;
 
   const PostModel({
     required this.id,
@@ -52,6 +55,9 @@ class PostModel {
     this.currentBid,
     this.auctionEndTime,
     this.bidsCount = 0,
+    this.listingTitle,
+    this.listingDescription,
+    this.distanceKm = 2.0,
   });
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
@@ -93,6 +99,9 @@ class PostModel {
           ? DateTime.tryParse(json['auctionEndTime'].toString())
           : null,
       bidsCount: (json['bidsCount'] as num?)?.toInt() ?? 0,
+      listingTitle: json['listingTitle'] as String?,
+      listingDescription: json['listingDescription'] as String?,
+      distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 2.0,
     );
   }
 
@@ -100,6 +109,9 @@ class PostModel {
     int? likesCount,
     int? sharesCount,
     bool? isLikedByMe,
+    String? listingTitle,
+    String? listingDescription,
+    double? distanceKm,
   }) {
     return PostModel(
       id: id,
@@ -124,7 +136,29 @@ class PostModel {
       currentBid: currentBid,
       auctionEndTime: auctionEndTime,
       bidsCount: bidsCount,
+      listingTitle: listingTitle ?? this.listingTitle,
+      listingDescription: listingDescription ?? this.listingDescription,
+      distanceKm: distanceKm ?? this.distanceKm,
     );
+  }
+
+  String get displayTitle {
+    if (listingTitle != null && listingTitle!.trim().isNotEmpty) return listingTitle!.trim();
+    final lines = content.split('\n');
+    final firstLine = lines.isNotEmpty ? lines[0] : content;
+    if (firstLine.contains(' • ')) {
+      return firstLine.split(' • ')[0].trim();
+    }
+    return firstLine.trim();
+  }
+
+  String get displayDescription {
+    if (listingDescription != null && listingDescription!.trim().isNotEmpty) return listingDescription!.trim();
+    final lines = content.split('\n');
+    if (lines.length > 1) {
+      return lines.sublist(1).join('\n').trim();
+    }
+    return '';
   }
 
   bool get isAuction => sellingMethod?.toUpperCase() == 'AUCTION';

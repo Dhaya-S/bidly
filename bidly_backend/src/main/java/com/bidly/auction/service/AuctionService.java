@@ -302,6 +302,7 @@ public class AuctionService {
         AuctionDetailsDto dto = new AuctionDetailsDto();
         dto.setListingId(listing.getId());
         dto.setTitle(listing.getTitle() != null ? listing.getTitle() : "");
+        dto.setDescription(listing.getDescription() != null ? listing.getDescription() : "");
         dto.setProductCondition(listing.getCondition() != null ? listing.getCondition().name() : "LIKE_NEW");
 
         String primaryImg = (listing.getMedia() != null && !listing.getMedia().isEmpty())

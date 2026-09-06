@@ -8,11 +8,12 @@ import '../providers/notifications_provider.dart';
 
 import '../../chat/widgets/new_offer_bottom_sheet.dart';
 import '../../chat/widgets/buyer_show_otp_modal.dart';
+import '../../auction/providers/order_provider.dart';
 
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
 
-  void _handleNotificationTap(BuildContext context, WidgetRef ref, NotificationItemModel notif) {
+  void _handleNotificationTap(BuildContext context, WidgetRef ref, NotificationItemModel notif) async {
     ref.read(notificationsProvider.notifier).markAsRead(notif.id);
 
     final currentUserId = ref.read(authProvider).user?.id;
@@ -76,7 +77,45 @@ class NotificationsScreen extends ConsumerWidget {
         return;
       }
       context.push(AppRoutes.chatList);
+    } else if (notif.type == 'MEETUP_SCHEDULED') {
       final effectiveOrderId = notif.orderId ?? notif.targetId ?? notif.metadata?['orderId']?.toString();
+      if (effectiveOrderId != null && effectiveOrderId.isNotEmpty) {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Confirming meetup...'),
+            backgroundColor: Color(0xFF004E54),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        final ok = await ref.read(orderProvider.notifier).confirmMeetup(effectiveOrderId);
+        if (context.mounted) {
+          if (ok) {
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Meetup confirmed! Tap "Show OTP" when you meet the seller.'),
+                backgroundColor: Color(0xFF004E54),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          if (listingId != null && listingId.isNotEmpty) {
+            context.push(
+              '/chat/offer/$listingId',
+              extra: {
+                'buyerId': buyerId,
+                'offerId': offerId,
+                'buyerName': buyerName,
+                'orderId': effectiveOrderId,
+              },
+            );
+            return;
+          }
+          BuyerShowOtpModal.show(context, orderId: effectiveOrderId);
+          return;
+        }
+      }
+      if (!context.mounted) return;
       if (listingId != null && listingId.isNotEmpty) {
         context.push(
           '/chat/offer/$listingId',
@@ -89,7 +128,21 @@ class NotificationsScreen extends ConsumerWidget {
         );
         return;
       }
-      final orderId = notif.orderId ?? notif.targetId;
+      context.push(AppRoutes.orders);
+    } else if (notif.type == 'MEETUP_CONFIRMED') {
+      final orderId = notif.orderId ?? notif.targetId ?? notif.metadata?['orderId']?.toString();
+      if (listingId != null && listingId.isNotEmpty) {
+        context.push(
+          '/chat/offer/$listingId',
+          extra: {
+            'buyerId': buyerId,
+            'offerId': offerId,
+            'buyerName': buyerName,
+            'orderId': orderId,
+          },
+        );
+        return;
+      }
       if (orderId != null && orderId.isNotEmpty) {
         BuyerShowOtpModal.show(context, orderId: orderId);
         return;

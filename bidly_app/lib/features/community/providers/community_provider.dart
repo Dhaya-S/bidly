@@ -359,19 +359,32 @@ class CommunityNotifier extends StateNotifier<CommunityState> {
             } catch (_) {}
           }
 
+          final rawListingTitle = map['listingTitle']?.toString();
+          final rawListingDesc = map['listingDescription']?.toString();
+          final finalTitle = (rawListingTitle != null && rawListingTitle.trim().isNotEmpty) ? rawListingTitle.trim() : title;
+          final finalDescription = (rawListingDesc != null && rawListingDesc.trim().isNotEmpty) ? rawListingDesc.trim() : description;
+
           return {
             'id': map['id']?.toString() ?? '',
+            'listingId': map['listingId']?.toString(),
+            'authorId': map['authorId']?.toString(),
             'authorName': map['authorName']?.toString() ?? 'Member',
             'authorAvatarUrl': map['authorAvatarUrl']?.toString(),
             'timeAgo': timeAgo,
-            'sellingMethod': tag == 'AUCTION' ? 'AUCTION' : 'DIRECT',
-            'title': title,
+            'sellingMethod': (map['sellingMethod']?.toString() ?? tag) == 'AUCTION' ? 'AUCTION' : 'DIRECT',
+            'title': finalTitle,
             'priceText': priceText,
-            'description': description,
+            'price': map['price'],
+            'startingBid': map['startingBid'],
+            'currentBid': map['currentBid'],
+            'bidsCount': map['bidsCount'] as int? ?? 0,
+            'auctionEndTime': map['auctionEndTime']?.toString(),
+            'distanceKm': (map['distanceKm'] as num?)?.toDouble() ?? 2.0,
+            'description': finalDescription,
             'imageUrl': map['mediaUrl']?.toString(),
             'likesCount': map['likesCount'] as int? ?? 0,
             'sharesCount': map['sharesCount'] as int? ?? 0,
-            'isLiked': map['likedByMe'] as bool? ?? false,
+            'isLiked': (map['likedByMe'] ?? map['isLikedByMe']) as bool? ?? false,
           };
         }).toList();
       }

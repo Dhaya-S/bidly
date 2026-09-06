@@ -10,6 +10,7 @@ class ExploreState {
   final bool isRefreshing;
   final bool isLoadingMore;
   final String? errorMessage;
+  final List<String> categories;
   final String selectedCategory;
   final String selectedSellingMethod; // ALL, DIRECT_BUY, AUCTION
   final String sortBy; // relevance, price_asc, price_desc, newest, ending_soon
@@ -31,6 +32,7 @@ class ExploreState {
     this.isRefreshing = false,
     this.isLoadingMore = false,
     this.errorMessage,
+    this.categories = const ['All'],
     this.selectedCategory = 'All',
     this.selectedSellingMethod = 'ALL',
     this.sortBy = 'relevance',
@@ -53,6 +55,7 @@ class ExploreState {
     bool? isRefreshing,
     bool? isLoadingMore,
     String? errorMessage,
+    List<String>? categories,
     String? selectedCategory,
     String? selectedSellingMethod,
     String? sortBy,
@@ -75,6 +78,7 @@ class ExploreState {
       isRefreshing: isRefreshing ?? this.isRefreshing,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       errorMessage: errorMessage,
+      categories: categories ?? this.categories,
       selectedCategory: selectedCategory ?? this.selectedCategory,
       selectedSellingMethod: selectedSellingMethod ?? this.selectedSellingMethod,
       sortBy: sortBy ?? this.sortBy,
@@ -190,6 +194,19 @@ class ExploreNotifier extends StateNotifier<ExploreState> {
         final list = res.data['data'] as List;
         final recent = list.map((j) => ListingModel.fromJson(j as Map<String, dynamic>)).toList();
         state = state.copyWith(recentlyViewed: recent);
+      }
+    }).catchError((_) {});
+
+    // 5. Fetch Dynamic Categories from API
+    _apiClient.dio.get('/categories').then((res) {
+      if (res.data != null && res.data['success'] == true) {
+        final list = res.data['data'] as List;
+        final catNames = list
+            .map((j) => (j['name'] as String?)?.trim() ?? '')
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList();
+        state = state.copyWith(categories: ['All', ...catNames]);
       }
     }).catchError((_) {});
   }

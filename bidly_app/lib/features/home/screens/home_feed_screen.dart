@@ -66,6 +66,20 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
       }
     });
 
+    ref.listen<ReelsState>(reelsProvider, (previous, next) {
+      if (next.reelListings.isNotEmpty &&
+          (previous == null ||
+              previous.reelListings.length != next.reelListings.length ||
+              (previous.reelListings.isNotEmpty &&
+                  previous.reelListings.first.id != next.reelListings.first.id))) {
+        final reelIds = next.reelListings.map((r) => r.id).toList();
+        final currentIdx = _pageController.hasClients && _pageController.page != null
+            ? _pageController.page!.round()
+            : 0;
+        ReelsControllerManager().setActiveIndex(currentIdx, reelIds);
+      }
+    });
+
     final reelsState = ref.watch(reelsProvider);
     final postsState = ref.watch(postsProvider);
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
@@ -132,7 +146,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
                               return false;
                             },
                             child: ListView.builder(
-                              padding: EdgeInsets.zero,
+                              padding: const EdgeInsets.only(bottom: 90),
                               itemCount: postsState.posts.length + (postsState.isLoadingMore ? 1 : 0),
                               itemBuilder: (context, index) {
                                 if (index >= postsState.posts.length) {

@@ -2,10 +2,14 @@
 # Usage: .\run.ps1
 
 $envFile = Join-Path $PSScriptRoot ".env"
+$jvmArgs = @()
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
         if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
-            [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), "Process")
+            $k = $matches[1].Trim()
+            $v = $matches[2].Trim()
+            [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
+            $jvmArgs += "-D$k=$v"
         }
     }
     Write-Host "[OK] Environment variables loaded from .env" -ForegroundColor Green
@@ -59,10 +63,15 @@ if ($adbPath) {
     }
 }
 
+$javaBin = "java"
+if ($env:JAVA_HOME -and (Test-Path "$env:JAVA_HOME\bin\java.exe")) {
+    $javaBin = "$env:JAVA_HOME\bin\java.exe"
+}
+
 $jarPath = Join-Path $PSScriptRoot "build\libs\bidly-backend-0.0.1-SNAPSHOT.jar"
 if (Test-Path $jarPath) {
     Write-Host "[INFO] Starting Bidly Backend (Standalone JAR) on port 8081..." -ForegroundColor Cyan
-    & java -jar $jarPath
+    & $javaBin $jvmArgs -jar $jarPath
 } else {
     Write-Host "[INFO] Starting Bidly Backend via Gradle on port 8081..." -ForegroundColor Cyan
     .\gradlew.bat bootRun --no-daemon

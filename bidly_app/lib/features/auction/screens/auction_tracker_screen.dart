@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -11,10 +13,12 @@ import '../widgets/auction_winner_dialog.dart';
 
 class AuctionTrackerScreen extends ConsumerStatefulWidget {
   final String listingId;
+  final bool isSellerRoute;
 
   const AuctionTrackerScreen({
     super.key,
     required this.listingId,
+    this.isSellerRoute = false,
   });
 
   @override
@@ -23,6 +27,8 @@ class AuctionTrackerScreen extends ConsumerStatefulWidget {
 
 class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
   final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+  final PageController _pageController = PageController();
+  int _currentImageIndex = 0;
 
   @override
   void initState() {
@@ -43,6 +49,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
 
   @override
   void dispose() {
+    _pageController.dispose();
     ref.read(auctionProvider.notifier).disconnectWebSocket();
     super.dispose();
   }
@@ -390,7 +397,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     final timeLeft = live?.timeLeftFormatted ?? details.timeLeftFormatted;
 
     final currentUserId = ref.watch(authProvider).user?.id;
-    final isSeller = currentUserId != null && (details.sellerId == currentUserId);
+    final isSeller = widget.isSellerRoute || (currentUserId != null && (details.sellerId == currentUserId));
     final isAuctionEnded = details.isAuctionEnded || details.status == 'SOLD' || details.status == 'COMPLETED' || (live?.isAuctionEnded ?? false);
 
     final totalBalance = wallet?.balance ?? 0.0;
@@ -400,6 +407,20 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     final bidFeed = (live?.liveBidFeed.isNotEmpty == true)
         ? live!.liveBidFeed
         : details.recentBids;
+
+    if (isSeller) {
+      return _buildSellerView(
+        context: context,
+        details: details,
+        live: live,
+        currentHighest: currentHighest,
+        totalBids: totalBids,
+        watchingCount: watchingCount,
+        timeLeft: timeLeft,
+        isAuctionEnded: isAuctionEnded,
+        bidFeed: bidFeed,
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -947,6 +968,17 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
     final isTop = b.isHighest;
     final isUser = b.isCurrentUser;
 
+    // Pick a distinct color based on bidder name
+    final avatarColors = [
+      const Color(0xFF8B5CF6), // Purple
+      const Color(0xFFF59E0B), // Amber
+      const Color(0xFFEF4444), // Red
+      const Color(0xFF10B981), // Green
+      const Color(0xFF004E54), // Dark Teal
+    ];
+    final colorIdx = b.bidderName.hashCode.abs() % avatarColors.length;
+    final avatarColor = isTop ? const Color(0xFF8B5CF6) : avatarColors[colorIdx];
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -962,9 +994,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
         children: [
           CircleAvatar(
             radius: 18,
-            backgroundColor: isUser
-                ? const Color(0xFF004E54)
-                : (isTop ? const Color(0xFF8B5CF6) : const Color(0xFFF59E0B)),
+            backgroundColor: avatarColor,
             child: Text(
               b.bidderInitials,
               style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
@@ -986,7 +1016,7 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(color: const Color(0xFFEF4444), borderRadius: BorderRadius.circular(4)),
-                        child: const Text('TOP', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
+                        child: const Text('HIGHEST', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
                       ),
                     if (isUser) ...[
                       const SizedBox(width: 4),
@@ -1017,6 +1047,517 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSellerView({
+    required BuildContext context,
+    required AuctionDetailsModel details,
+    required AuctionLiveStatusModel? live,
+    required double currentHighest,
+    required int totalBids,
+    required int watchingCount,
+    required String timeLeft,
+    required bool isAuctionEnded,
+    required List<BidHistoryItemModel> bidFeed,
+  }) {
+    final images = details.imageUrls.isNotEmpty
+        ? details.imageUrls
+        : (details.primaryImageUrl != null && details.primaryImageUrl!.isNotEmpty
+            ? [details.primaryImageUrl!]
+            : <String>[]);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Swipable Hero Carousel + Floating Header Controls (Container 2)
+                Stack(
+                  children: [
+                    // Image Carousel
+                    Container(
+                      height: 300,
+                      width: double.infinity,
+                      color: const Color(0xFFF1F5F9),
+                      child: images.isNotEmpty
+                          ? PageView.builder(
+                              controller: _pageController,
+                              itemCount: images.length,
+                              onPageChanged: (i) => setState(() => _currentImageIndex = i),
+                              itemBuilder: (ctx, i) {
+                                return CachedNetworkImage(
+                                  imageUrl: ApiClient.resolveMediaUrl(images[i]),
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => const Center(
+                                    child: CircularProgressIndicator(color: Color(0xFF004E54), strokeWidth: 2),
+                                  ),
+                                  errorWidget: (_, __, ___) => const Center(
+                                    child: Icon(Icons.image_outlined, size: 48, color: Color(0xFF94A3B8)),
+                                  ),
+                                );
+                              },
+                            )
+                          : const Center(
+                              child: Icon(Icons.image_outlined, size: 64, color: Color(0xFFCBD5E1)),
+                            ),
+                    ),
+
+                    // Floating Header Row
+                    SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Back button
+                            GestureDetector(
+                              onTap: () => context.pop(),
+                              child: Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.arrow_back_ios_new, size: 16, color: Colors.white),
+                              ),
+                            ),
+
+                            // LIVE AUCTION Pill
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isAuctionEnded ? const Color(0xFF64748B) : const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isAuctionEnded) ...[
+                                    Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Text(
+                                    isAuctionEnded ? 'AUCTION ENDED' : 'LIVE AUCTION',
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Heart & Share Actions
+                            Row(
+                              children: [
+                                Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.favorite_border_rounded, size: 18, color: Colors.white),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.share_outlined, size: 18, color: Colors.white),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Page Indicators
+                    if (images.length > 1)
+                      Positioned(
+                        bottom: 12,
+                        left: 0,
+                        right: 0,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(
+                            images.length,
+                            (i) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              width: _currentImageIndex == i ? 18 : 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: _currentImageIndex == i ? Colors.white : Colors.white.withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+
+                // 2. Listing Details Body
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Red AUCTION Pill
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEE2E2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'AUCTION',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFEF4444),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Title
+                      Text(
+                        details.title,
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+
+                      // Location & Condition
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 14, color: Color(0xFF64748B)),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${details.city.isNotEmpty ? details.city : "Chennai"}, ${details.state.isNotEmpty ? details.state : "Tamil Nadu"} · ${details.productCondition.replaceAll('_', ' ')}',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12.5,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // 3. Dark Teal Current Highest Bid Card (Container 2 center)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF004E54),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF004E54).withValues(alpha: 0.25),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Current Highest Bid',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    currencyFormatter.format(currentHighest),
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '$totalBids bids · $watchingCount watching',
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEF4444),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.timer_outlined, size: 14, color: Colors.white),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        timeLeft,
+                                        style: const TextStyle(
+                                          fontFamily: 'Poppins',
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Ends in $timeLeft',
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    color: Colors.white60,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+
+                      // 4. Description
+                      const Text(
+                        'Description',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        details.description != null && details.description!.trim().isNotEmpty
+                            ? details.description!
+                            : '${details.title} in ${details.productCondition.replaceAll('_', ' ')} condition. Original accessories included, in full working condition.',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          height: 1.55,
+                          color: Color(0xFF475569),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+
+                      // 5. Bid History
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.trending_up_rounded, color: Color(0xFF004E54), size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Bid History',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '$totalBids total bids',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              color: Color(0xFF94A3B8),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      if (bidFeed.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'No bids placed yet. Bids will appear here in real-time.',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Color(0xFF94A3B8)),
+                          ),
+                        )
+                      else
+                        ...bidFeed.map((b) => _buildBidFeedItem(b)),
+
+                      const SizedBox(height: 22),
+
+                      // 6. Trust & Safety
+                      const Text(
+                        'Trust & Safety',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildTrustBullet('BIDLY Buyer Protection covers this auction'),
+                      const SizedBox(height: 8),
+                      _buildTrustBullet('Seller identity verified with Aadhaar'),
+                      const SizedBox(height: 8),
+                      _buildTrustBullet('Seller has 4.9★ rating across 312 reviews'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 7. Fixed Bottom Action Button (Container 2 End Auction)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                top: false,
+                child: isAuctionEnded
+                    ? SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            final winner = await ref.read(auctionProvider.notifier).fetchAuctionWinner(widget.listingId);
+                            if (winner != null && context.mounted) {
+                              AuctionWinnerDialog.show(context, winner: winner, listingId: widget.listingId);
+                            }
+                          },
+                          icon: const Icon(Icons.emoji_events_outlined, size: 20),
+                          label: const Text(
+                            'View Winner & Delivery',
+                            style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w800, fontSize: 15),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF004E54),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      )
+                    : SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: () => _confirmEndAuction(context, details),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'End Auction',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrustBullet(String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF004E54)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12.5,
+              color: Color(0xFF475569),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

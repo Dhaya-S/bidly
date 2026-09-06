@@ -70,6 +70,9 @@ public class Order extends BaseEntity {
     @Column(name = "client_action_id", length = 100)
     private String clientActionId;
 
+    @Column(name = "is_meetup_confirmed")
+    private Boolean isMeetupConfirmed = false;
+
     @Column(name = "otp_expires_at")
     private Instant otpExpiresAt;
 
@@ -187,6 +190,9 @@ public class Order extends BaseEntity {
 
     public String getClientActionId() { return clientActionId; }
     public void setClientActionId(String clientActionId) { this.clientActionId = clientActionId; }
+
+    public Boolean getIsMeetupConfirmed() { return isMeetupConfirmed != null && isMeetupConfirmed; }
+    public void setIsMeetupConfirmed(Boolean isMeetupConfirmed) { this.isMeetupConfirmed = isMeetupConfirmed; }
 
     public Instant getOtpExpiresAt() { return otpExpiresAt; }
     public void setOtpExpiresAt(Instant otpExpiresAt) { this.otpExpiresAt = otpExpiresAt; }

@@ -187,7 +187,7 @@ class AuctionWinnerDialog extends ConsumerWidget {
                   }
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF14B8A6),
+                  backgroundColor: const Color(0xFF004E54),
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

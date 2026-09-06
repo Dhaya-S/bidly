@@ -139,6 +139,30 @@ public class ListingController {
         ListingSummaryDto updated = listingService.toggleLikeListing(id, currentUserId, desiredLiked);
         return ResponseEntity.ok(ApiResponse.success(updated));
     }
+
+    /**
+     * PUT /api/listings/{id} — Update an existing listing by its seller
+     */
+    @PutMapping("/{id:[a-fA-F0-9\\-]{36}}")
+    public ResponseEntity<ApiResponse<ListingSummaryDto>> updateListing(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID currentUserId,
+            @RequestBody com.bidly.listing.dto.UpdateListingRequest request) {
+        ListingSummaryDto updated = listingService.updateListing(id, currentUserId, request);
+        return ResponseEntity.ok(ApiResponse.success("Listing updated successfully", updated));
+    }
+
+    /**
+     * DELETE /api/listings/{id} — Delete an existing listing by its seller
+     */
+    @DeleteMapping("/{id:[a-fA-F0-9\\-]{36}}")
+    public ResponseEntity<ApiResponse<Void>> deleteListing(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID currentUserId) {
+        listingService.deleteListing(id, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success("Listing deleted successfully", null));
+    }
+
     /**
      * GET /api/listings/my — List user's active, sold, and draft listings
      */

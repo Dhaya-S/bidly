@@ -6,12 +6,13 @@ class MyListingItemModel {
   final String title;
   final double price;
   final String status; // ACTIVE, SHIPPING, COMPLETED, CANCELLED
-  final String sellingMethod; // AUCTION, DIRECT_SALE
+  final String sellingMethod; // AUCTION, DIRECT_BUY
   final String? timeLeft;
   final int bidsCount;
   final String? subtext; // e.g. "In Transit" or "12 bids"
   final String? imageUrl;
   final String locality;
+  final DateTime? auctionEndTime;
 
   const MyListingItemModel({
     required this.id,
@@ -24,22 +25,75 @@ class MyListingItemModel {
     this.subtext,
     this.imageUrl,
     this.locality = 'Chennai',
+    this.auctionEndTime,
   });
 
   factory MyListingItemModel.fromJson(Map<String, dynamic> json) {
+    final method = json['sellingMethod']?.toString().toUpperCase() ?? 'AUCTION';
+    final isAuction = method == 'AUCTION';
+
+    final currentBid = (json['currentBid'] is num)
+        ? (json['currentBid'] as num).toDouble()
+        : double.tryParse(json['currentBid']?.toString() ?? '');
+    final startingBid = (json['startingBid'] is num)
+        ? (json['startingBid'] as num).toDouble()
+        : double.tryParse(json['startingBid']?.toString() ?? '');
+    final basePrice = (json['price'] is num)
+        ? (json['price'] as num).toDouble()
+        : (double.tryParse(json['price']?.toString() ?? '0') ?? 0.0);
+
+    double displayPrice;
+    if (isAuction) {
+      if (currentBid != null && currentBid > 0) {
+        displayPrice = currentBid;
+      } else if (startingBid != null && startingBid > 0) {
+        displayPrice = startingBid;
+      } else {
+        displayPrice = basePrice;
+      }
+    } else {
+      displayPrice = basePrice;
+    }
+
+    // Determine normalized status
+    String rawStatus = json['status']?.toString().toUpperCase() ?? 'ACTIVE';
+    if (rawStatus == 'SOLD') {
+      rawStatus = 'COMPLETED';
+    }
+
+    // Calculate real-time timeLeft
+    String? calculatedTimeLeft;
+    DateTime? endTime;
+    if (json['auctionEndTime'] != null) {
+      try {
+        endTime = DateTime.parse(json['auctionEndTime'].toString()).toLocal();
+        final diff = endTime.difference(DateTime.now());
+        if (diff.isNegative) {
+          calculatedTimeLeft = 'Ended';
+        } else if (diff.inDays > 0) {
+          calculatedTimeLeft = '${diff.inDays}d ${diff.inHours % 24}h';
+        } else if (diff.inHours > 0) {
+          calculatedTimeLeft = '${diff.inHours}h ${diff.inMinutes % 60}m';
+        } else if (diff.inMinutes > 0) {
+          calculatedTimeLeft = '${diff.inMinutes}m';
+        } else {
+          calculatedTimeLeft = '${diff.inSeconds}s';
+        }
+      } catch (_) {}
+    }
+
     return MyListingItemModel(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? 'Listing',
-      price: (json['price'] is num)
-          ? (json['price'] as num).toDouble()
-          : (double.tryParse(json['price']?.toString() ?? '0') ?? 0.0),
-      status: json['status']?.toString() ?? 'ACTIVE',
-      sellingMethod: json['sellingMethod']?.toString() ?? 'AUCTION',
-      timeLeft: json['timeLeft']?.toString(),
+      price: displayPrice,
+      status: rawStatus,
+      sellingMethod: method,
+      timeLeft: calculatedTimeLeft ?? json['timeLeft']?.toString(),
       bidsCount: (json['bidsCount'] is num) ? (json['bidsCount'] as num).toInt() : 0,
       subtext: json['subtext']?.toString(),
       imageUrl: json['primaryImageUrl']?.toString(),
       locality: json['locality']?.toString() ?? 'Chennai',
+      auctionEndTime: endTime,
     );
   }
 }
@@ -111,8 +165,22 @@ class MyListingsNotifier extends StateNotifier<MyListingsState> {
     );
   }
 
+  Future<bool> deleteListing(String listingId) async {
+    try {
+      final res = await _apiClient.delete('/listings/$listingId');
+      if (res.data != null && res.data['success'] == true) {
+        state = state.copyWith(
+          auctionListings: state.auctionListings.where((item) => item.id != listingId).toList(),
+          directListings: state.directListings.where((item) => item.id != listingId).toList(),
+        );
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   void setTab(String tab) {
-    state = state.copyWith(selectedTab: tab);
+    state = state.copyWith(selectedTab: tab, selectedFilter: 'ALL');
   }
 
   void setFilter(String filter) {

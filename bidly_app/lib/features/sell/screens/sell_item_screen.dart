@@ -5,10 +5,18 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../explore/models/listing_model.dart';
 import '../providers/sell_provider.dart';
 
 class SellItemScreen extends ConsumerStatefulWidget {
-  const SellItemScreen({super.key});
+  final ListingModel? listingToEdit;
+  final bool isEditing;
+
+  const SellItemScreen({
+    super.key,
+    this.listingToEdit,
+    this.isEditing = false,
+  });
 
   @override
   ConsumerState<SellItemScreen> createState() => _SellItemScreenState();
@@ -43,14 +51,20 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.isEditing && widget.listingToEdit != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(sellProvider.notifier).loadForEditing(widget.listingToEdit!);
+      });
+    }
     final state = ref.read(sellProvider);
-    _titleController = TextEditingController(text: state.title);
-    _descController = TextEditingController(text: state.description);
+    _titleController = TextEditingController(text: widget.listingToEdit?.title ?? state.title);
+    _descController = TextEditingController(text: widget.listingToEdit?.description ?? state.description);
+    final initialPrice = widget.listingToEdit?.price ?? state.price;
     _priceController = TextEditingController(
-      text: state.price > 0 ? state.price.toStringAsFixed(0) : '',
+      text: initialPrice > 0 ? initialPrice.toStringAsFixed(0) : '',
     );
-    _purchaseDateController = TextEditingController(text: state.purchaseDate ?? '');
-    _damageDetailsController = TextEditingController(text: state.damageDetails ?? '');
+    _purchaseDateController = TextEditingController(text: widget.listingToEdit?.purchaseDate ?? state.purchaseDate ?? '');
+    _damageDetailsController = TextEditingController(text: widget.listingToEdit?.damageDetails ?? state.damageDetails ?? '');
   }
 
   @override
@@ -92,7 +106,7 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
     }
   }
 
-  void _handleContinue() {
+  Future<void> _handleContinue() async {
     if (!_formKey.currentState!.validate()) return;
 
     final price = double.tryParse(_priceController.text.trim()) ?? 0.0;
@@ -115,6 +129,29 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
               : null,
         );
 
+    if (widget.isEditing && widget.listingToEdit != null) {
+      final ok = await ref.read(sellProvider.notifier).updateListing(widget.listingToEdit!.id);
+      if (!mounted) return;
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Listing updated successfully!'),
+            backgroundColor: Color(0xFF004E54),
+          ),
+        );
+        context.pop(true);
+      } else {
+        final sellState = ref.read(sellProvider);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(sellState.errorMessage ?? 'Failed to update listing'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+      return;
+    }
+
     context.push(AppRoutes.sellScope);
   }
 
@@ -136,9 +173,9 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Color(0xFF1E232A)),
           onPressed: () => context.pop(),
         ),
-        title: const Text(
-          'Sell Item',
-          style: TextStyle(
+        title: Text(
+          widget.isEditing ? 'Edit Item' : 'Sell Item',
+          style: const TextStyle(
             fontFamily: 'Poppins',
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -146,29 +183,32 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
           ),
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            alignment: Alignment.center,
-            child: const Text(
-              '1/4',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
+          if (!widget.isEditing)
+            Container(
+              margin: const EdgeInsets.only(right: 16),
+              alignment: Alignment.center,
+              child: const Text(
+                '1/4',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF64748B),
+                ),
               ),
             ),
-          ),
         ],
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(3),
-          child: LinearProgressIndicator(
-            value: 0.25,
-            backgroundColor: Color(0xFFE2E8F0),
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF004E54)),
-            minHeight: 3,
-          ),
-        ),
+        bottom: widget.isEditing
+            ? null
+            : const PreferredSize(
+                preferredSize: Size.fromHeight(3),
+                child: LinearProgressIndicator(
+                  value: 0.25,
+                  backgroundColor: Color(0xFFE2E8F0),
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF004E54)),
+                  minHeight: 3,
+                ),
+              ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -677,9 +717,11 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'Continue',
-                      style: TextStyle(
+                    child: Text(
+                      widget.isEditing
+                          ? (sellState.isLoading ? 'Saving...' : 'Save Changes')
+                          : 'Continue',
+                      style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 15,
                         fontWeight: FontWeight.w700,

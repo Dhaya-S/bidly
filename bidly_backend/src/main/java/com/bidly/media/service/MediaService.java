@@ -109,9 +109,32 @@ public class MediaService {
             throw BidlyException.badRequest(String.format("Video file size (%.1fMB) exceeds maximum limit of %.0fMB", sizeMb, maxMb));
         }
 
+        if (!videoProcessingService.isAvailable()) {
+            // Direct synchronous upload to Cloudflare R2 when transcode service (ffmpeg) is not present
+            String videoKey = uploadDirectToR2(file, folder != null ? folder : "listings/reels");
+            MediaJob job = new MediaJob(videoKey, null, MediaJob.ProcessingStatus.READY);
+            MediaJob savedJob = mediaJobRepository.save(job);
+
+            long httpDuration = System.currentTimeMillis() - uploadStartTime;
+            log.info("[MEDIA_UPLOAD] DIRECT_SYNC_COMPLETE jobId={} videoKey='{}' size={} http_response_ms={}",
+                    savedJob.getId(), videoKey, file.getSize(), httpDuration);
+
+            Map<String, String> result = new HashMap<>();
+            result.put("url", videoKey);
+            result.put("thumbnailUrl", null);
+            result.put("jobId", savedJob.getId().toString());
+            result.put("status", "READY");
+            result.put("processing", "false");
+            return result;
+        }
+
         File tempDir = getTempDirectory();
         String fileId = UUID.randomUUID().toString();
-        File sourceTempFile = new File(tempDir, "upload_" + fileId + ".mp4");
+        String origExt = "mp4";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            origExt = originalFilename.substring(originalFilename.lastIndexOf(".") + 1).toLowerCase();
+        }
+        File sourceTempFile = new File(tempDir, "upload_" + fileId + "." + origExt);
 
         try {
             file.transferTo(sourceTempFile);

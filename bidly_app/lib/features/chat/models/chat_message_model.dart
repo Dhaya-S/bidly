@@ -61,6 +61,12 @@ class ChatMessageModel {
     return false;
   }
 
+  bool get isTransactionCompleted {
+    if (type.toUpperCase() == 'TRANSACTION_COMPLETED') return true;
+    if (content != null && (content!.toLowerCase().contains('delivery confirmed') || content!.toLowerCase().contains('transaction is completed'))) return true;
+    return false;
+  }
+
   Map<String, dynamic>? get parsedMetadata {
     if (metadata == null || metadata!.isEmpty) return null;
     try {

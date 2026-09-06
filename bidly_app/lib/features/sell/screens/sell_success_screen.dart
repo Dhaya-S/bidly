@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../home/providers/reels_provider.dart';
+import '../../posts/providers/posts_provider.dart';
 import '../providers/sell_provider.dart';
 
 class SellSuccessScreen extends ConsumerWidget {
@@ -106,6 +108,8 @@ class SellSuccessScreen extends ConsumerWidget {
                 child: ElevatedButton(
                   onPressed: () {
                     ref.read(sellProvider.notifier).resetForm();
+                    ref.read(reelsProvider.notifier).fetchReels(isRefresh: true);
+                    ref.read(postsProvider.notifier).fetchFeed(isRefresh: true);
                     context.go(AppRoutes.home);
                   },
                   style: ElevatedButton.styleFrom(

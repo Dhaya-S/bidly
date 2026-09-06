@@ -297,6 +297,9 @@ public class CommunityPostService {
         if (post.getListing() != null) {
             com.bidly.listing.entity.Listing l = post.getListing();
             dto.setListingId(l.getId());
+            dto.setListingTitle(l.getTitle());
+            dto.setListingDescription(l.getDescription());
+            dto.setDistanceKm(2.0);
             dto.setSellingMethod(l.getSellingMethod() != null ? l.getSellingMethod().name() : "DIRECT_BUY");
             dto.setPrice(l.getPrice());
             dto.setStartingBid(l.getStartingBid());
@@ -306,20 +309,21 @@ public class CommunityPostService {
 
             if (l.getMedia() != null && !l.getMedia().isEmpty()) {
                 List<ListingSummaryDto.MediaItemDto> items = l.getMedia().stream()
+                        .filter(m -> m.getType() == ListingMedia.MediaType.IMAGE && !m.getUrl().contains("-thumb.jpg"))
                         .sorted(Comparator.comparingInt(ListingMedia::getSortOrder))
                         .map(m -> {
                             String direct = mediaService.generatePresignedGetUrl(m.getUrl(), java.time.Duration.ofHours(4));
                             return new ListingSummaryDto.MediaItemDto(
                                     direct != null ? direct : m.getUrl(),
-                                    m.getType() != null ? m.getType().name() : "IMAGE",
+                                    "IMAGE",
                                     m.getSortOrder()
                             );
                         })
                         .collect(Collectors.toList());
                 dto.setMediaItems(items);
                 dto.setMediaUrl(!items.isEmpty() ? items.get(0).getUrl() : null);
-                dto.setMediaType(!items.isEmpty() ? items.get(0).getType() : "IMAGE");
-            } else if (l.getPrimaryImageUrl() != null && !l.getPrimaryImageUrl().isBlank()) {
+                dto.setMediaType("IMAGE");
+            } else if (l.getPrimaryImageUrl() != null && !l.getPrimaryImageUrl().isBlank() && !l.getPrimaryImageUrl().contains("-thumb.jpg")) {
                 String direct = mediaService.generatePresignedGetUrl(l.getPrimaryImageUrl(), java.time.Duration.ofHours(4));
                 String finalUrl = direct != null ? direct : l.getPrimaryImageUrl();
                 dto.setMediaUrl(finalUrl);

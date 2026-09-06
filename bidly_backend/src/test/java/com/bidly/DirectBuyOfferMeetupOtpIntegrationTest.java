@@ -104,7 +104,8 @@ public class DirectBuyOfferMeetupOtpIntegrationTest {
                 reviewRepository,
                 orderRepository,
                 userRepository,
-                mediaService
+                mediaService,
+                notificationService
         );
 
         buyer = new User();

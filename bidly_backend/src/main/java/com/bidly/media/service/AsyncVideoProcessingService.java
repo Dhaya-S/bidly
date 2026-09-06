@@ -60,47 +60,77 @@ public class AsyncVideoProcessingService {
         long overallStartTime = System.currentTimeMillis();
         log.info("[MEDIA_PROCESSOR] START jobId={} file={} videoKey='{}'", jobId, sourceTempFile.getName(), videoKey);
 
+        boolean uploadCompleted = false;
+        String finalThumbKey = null;
+
         try {
             long procStartTime = System.currentTimeMillis();
 
-            try (VideoProcessingResult procResult = videoProcessingService.processFile(sourceTempFile)) {
-                long procDuration = System.currentTimeMillis() - procStartTime;
-                log.info("[MEDIA_PROCESSOR] TRANSCODE_SUCCESS jobId={} proc_ms={} outputSize={}",
-                        jobId, procDuration, procResult.getOutputFileSize());
+            if (videoProcessingService.isAvailable()) {
+                try (VideoProcessingResult procResult = videoProcessingService.processFile(sourceTempFile)) {
+                    long procDuration = System.currentTimeMillis() - procStartTime;
+                    log.info("[MEDIA_PROCESSOR] TRANSCODE_SUCCESS jobId={} proc_ms={} outputSize={}",
+                            jobId, procDuration, procResult.getOutputFileSize());
 
-                // 1. Upload optimized MP4 to Cloudflare R2
+                    // 1. Upload optimized MP4 to Cloudflare R2
+                    long r2StartTime = System.currentTimeMillis();
+                    File optFile = procResult.getOptimizedVideoFile();
+                    PutObjectRequest videoPut = PutObjectRequest.builder()
+                            .bucket(bucketName)
+                            .key(videoKey)
+                            .contentType("video/mp4")
+                            .contentLength(optFile.length())
+                            .build();
+
+                    s3Client.putObject(videoPut, RequestBody.fromFile(optFile));
+
+                    // 2. Upload companion thumbnail poster to Cloudflare R2
+                    File thumbFile = procResult.getThumbnailFile();
+                    if (thumbFile != null && thumbFile.exists() && thumbFile.length() > 0) {
+                        PutObjectRequest thumbPut = PutObjectRequest.builder()
+                                .bucket(bucketName)
+                                .key(thumbKey)
+                                .contentType("image/jpeg")
+                                .contentLength(thumbFile.length())
+                                .build();
+
+                        s3Client.putObject(thumbPut, RequestBody.fromFile(thumbFile));
+                        finalThumbKey = thumbKey;
+                    }
+
+                    long r2Duration = System.currentTimeMillis() - r2StartTime;
+                    long totalDuration = System.currentTimeMillis() - overallStartTime;
+
+                    log.info("[MEDIA_PROCESSOR] R2_UPLOAD_COMPLETE jobId={} r2_ms={} total_ms={} videoKey='{}' thumbKey='{}'",
+                            jobId, r2Duration, totalDuration, videoKey, finalThumbKey);
+
+                    uploadCompleted = true;
+                } catch (Exception transcodeEx) {
+                    log.warn("[MEDIA_PROCESSOR] Transcoding attempt failed for jobId={} ({}). Falling back to direct video upload...",
+                            jobId, transcodeEx.getMessage());
+                }
+            } else {
+                log.warn("[MEDIA_PROCESSOR] Video processor (ffmpeg/ffprobe) not available. Falling back to direct video upload for jobId={}", jobId);
+            }
+
+            // Fallback: If transcoding was skipped or failed, upload the source video directly!
+            if (!uploadCompleted && sourceTempFile != null && sourceTempFile.exists() && sourceTempFile.length() > 0) {
                 long r2StartTime = System.currentTimeMillis();
-                File optFile = procResult.getOptimizedVideoFile();
-                PutObjectRequest videoPut = PutObjectRequest.builder()
+                PutObjectRequest directPut = PutObjectRequest.builder()
                         .bucket(bucketName)
                         .key(videoKey)
                         .contentType("video/mp4")
-                        .contentLength(optFile.length())
+                        .contentLength(sourceTempFile.length())
                         .build();
 
-                s3Client.putObject(videoPut, RequestBody.fromFile(optFile));
-
-                // 2. Upload companion thumbnail poster to Cloudflare R2
-                File thumbFile = procResult.getThumbnailFile();
-                String finalThumbKey = null;
-                if (thumbFile != null && thumbFile.exists() && thumbFile.length() > 0) {
-                    PutObjectRequest thumbPut = PutObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(thumbKey)
-                            .contentType("image/jpeg")
-                            .contentLength(thumbFile.length())
-                            .build();
-
-                    s3Client.putObject(thumbPut, RequestBody.fromFile(thumbFile));
-                    finalThumbKey = thumbKey;
-                }
-
+                s3Client.putObject(directPut, RequestBody.fromFile(sourceTempFile));
                 long r2Duration = System.currentTimeMillis() - r2StartTime;
-                long totalDuration = System.currentTimeMillis() - overallStartTime;
+                log.info("[MEDIA_PROCESSOR] DIRECT_FALLBACK_UPLOAD_COMPLETE jobId={} r2_ms={} videoKey='{}'",
+                        jobId, r2Duration, videoKey);
+                uploadCompleted = true;
+            }
 
-                log.info("[MEDIA_PROCESSOR] R2_UPLOAD_COMPLETE jobId={} r2_ms={} total_ms={} videoKey='{}' thumbKey='{}'",
-                        jobId, r2Duration, totalDuration, videoKey, finalThumbKey);
-
+            if (uploadCompleted) {
                 // 3. Mark MediaJob as READY in database
                 updateJobStatus(jobId, MediaJob.ProcessingStatus.READY, null, finalThumbKey);
 
@@ -108,6 +138,8 @@ public class AsyncVideoProcessingService {
                 updateAssociatedListings(videoKey, finalThumbKey, Listing.MediaProcessingStatus.READY);
 
                 log.info("[MEDIA_PROCESSOR] READY jobId={} videoKey='{}'", jobId, videoKey);
+            } else {
+                throw new IllegalStateException("Failed to upload video to Cloudflare R2 via transcode and direct fallback");
             }
 
         } catch (Exception e) {

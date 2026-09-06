@@ -507,9 +507,20 @@ public class VideoProcessingService {
         }
     }
 
+    /**
+     * Checks if both ffmpeg and ffprobe are available and operational on the host system.
+     */
+    public boolean isAvailable() {
+        ensureExecutablesAvailable();
+        return resolvedFfmpegPath != null && resolvedFfprobePath != null
+                && testExecutable(resolvedFfmpegPath) && testExecutable(resolvedFfprobePath);
+    }
+
     private void ensureExecutablesAvailable() {
-        if (resolvedFfmpegPath == null || resolvedFfprobePath == null) {
+        if (resolvedFfmpegPath == null || !testExecutable(resolvedFfmpegPath)) {
             resolvedFfmpegPath = resolveExecutable("ffmpeg", configuredFfmpegPath);
+        }
+        if (resolvedFfprobePath == null || !testExecutable(resolvedFfprobePath)) {
             resolvedFfprobePath = resolveExecutable("ffprobe", configuredFfprobePath);
         }
     }
@@ -532,25 +543,31 @@ public class VideoProcessingService {
         }
 
         // 4. Common Windows / Linux fallback paths
-        String[] fallbacks = new String[]{
-                System.getProperty("user.home") + "\\AppData\\Local\\Microsoft\\WinGet\\Links\\" + binaryName + ".exe",
-                "C:\\Program Files\\ffmpeg\\bin\\" + binaryName + ".exe",
-                "C:\\ffmpeg\\bin\\" + binaryName + ".exe",
-                "/usr/bin/" + binaryName,
-                "/usr/local/bin/" + binaryName
-        };
+        List<String> fallbacks = new ArrayList<>();
+        String localAppData = System.getenv("LOCALAPPDATA");
+        if (localAppData != null && !localAppData.isBlank()) {
+            fallbacks.add(localAppData + "\\Microsoft\\WinGet\\Links\\" + binaryName + ".exe");
+        }
+        String userHome = System.getProperty("user.home");
+        if (userHome != null && !userHome.isBlank()) {
+            fallbacks.add(userHome + "\\AppData\\Local\\Microsoft\\WinGet\\Links\\" + binaryName + ".exe");
+        }
+        fallbacks.add("C:\\Program Files\\ffmpeg\\bin\\" + binaryName + ".exe");
+        fallbacks.add("C:\\ffmpeg\\bin\\" + binaryName + ".exe");
+        fallbacks.add("/usr/bin/" + binaryName);
+        fallbacks.add("/usr/local/bin/" + binaryName);
+        fallbacks.add("/opt/homebrew/bin/" + binaryName);
 
         for (String candidate : fallbacks) {
             File f = new File(candidate);
-            if (f.exists() && f.canExecute()) {
-                if (testExecutable(candidate)) {
-                    return candidate;
-                }
+            if (f.exists() && testExecutable(candidate)) {
+                log.info("[VIDEO_PROCESS] Resolved '{}' via fallback path '{}'", binaryName, candidate);
+                return candidate;
             }
         }
 
-        log.warn("[VIDEO_PROCESS] Executable '{}' could not be verified. Defaulting to '{}'", binaryName, binaryName);
-        return binaryName;
+        log.warn("[VIDEO_PROCESS] Executable '{}' could not be found or verified on system.", binaryName);
+        return null;
     }
 
     private boolean testExecutable(String execPath) {

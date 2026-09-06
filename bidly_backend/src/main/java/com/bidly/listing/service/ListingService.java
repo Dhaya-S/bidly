@@ -4,6 +4,7 @@ import com.bidly.category.entity.Category;
 import com.bidly.category.repository.CategoryRepository;
 import com.bidly.common.exception.BidlyException;
 import com.bidly.listing.dto.CreateListingRequest;
+import com.bidly.listing.dto.UpdateListingRequest;
 import com.bidly.listing.dto.ListingSummaryDto;
 import com.bidly.listing.dto.TopSellerDto;
 import com.bidly.listing.entity.Listing;
@@ -184,8 +185,10 @@ public class ListingService {
         listing.setRating(trustScore != null && trustScore > 0 ? (trustScore / 20.0) : 4.8);
         listing.setDistanceKm(0.0); // 0km distance for the creator
 
-        // Set primary thumbnail URL if media exists
-        if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
+        // Set primary thumbnail URL if provided or from first media photo
+        if (request.getPrimaryImageUrl() != null && !request.getPrimaryImageUrl().isBlank()) {
+            listing.setPrimaryImageUrl(request.getPrimaryImageUrl().trim());
+        } else if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
             for (String url : request.getMediaUrls()) {
                 if (url != null && !url.trim().isEmpty()) {
                     listing.setPrimaryImageUrl(url.trim());
@@ -207,45 +210,45 @@ public class ListingService {
             }
         }
 
-        // If listing is scoped to a community, create a corresponding live CommunityPost strictly inside that community
-        if (request.getCommunityId() != null) {
-            final User postAuthor = seller;
-            communityRepository.findById(request.getCommunityId()).ifPresent(comm -> {
+        // Only create a CommunityPost if the seller provided photos for a post!
+        // If the user listed a reel only (no photos), do NOT create a CommunityPost so it shows strictly in Feed (Reels).
+        boolean hasPhotos = request.getMediaUrls() != null && !request.getMediaUrls().isEmpty();
+        if (hasPhotos) {
+            if (request.getCommunityId() != null) {
+                final User postAuthor = seller;
+                communityRepository.findById(request.getCommunityId()).ifPresent(comm -> {
+                    CommunityPost post = new CommunityPost();
+                    post.setAuthor(postAuthor);
+                    post.setCommunity(comm);
+                    post.setListing(saved);
+                    String priceFormatted = "₹" + (request.getPrice() != null ? request.getPrice().stripTrailingZeros().toPlainString() : "0");
+                    String content = request.getTitle() + " • " + priceFormatted + (request.getDescription() != null && !request.getDescription().isBlank() ? "\n" + request.getDescription() : "");
+                    post.setContent(content);
+                    post.setMediaUrl(request.getMediaUrls().get(0));
+                    post.setMediaType("IMAGE");
+                    post.setTag("AUCTION".equalsIgnoreCase(request.getSellingMethod()) ? "AUCTION" : "DIRECT");
+                    post.setLikesCount(0);
+                    post.setSharesCount(0);
+                    communityPostRepository.save(post);
+                    log.info("Created real-time community post for community '{}' from listing '{}'", comm.getName(), saved.getTitle());
+                });
+            } else if ("GLOBAL".equalsIgnoreCase(request.getSellingScope()) || request.getSellingScope() == null) {
+                // If listing is GLOBAL (or default), create a global post visible on the Home screen Posts feed
                 CommunityPost post = new CommunityPost();
-                post.setAuthor(postAuthor);
-                post.setCommunity(comm);
+                post.setAuthor(seller);
+                post.setCommunity(null);
                 post.setListing(saved);
-                String priceFormatted = "₹" + (request.getPrice() != null ? request.getPrice().stripTrailingZeros().toPlainString() : "0");
+                String priceFormatted = "₹" + (request.getPrice() != null ? request.getPrice().toPlainString() : "0");
                 String content = request.getTitle() + " • " + priceFormatted + (request.getDescription() != null && !request.getDescription().isBlank() ? "\n" + request.getDescription() : "");
                 post.setContent(content);
-                if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
-                    post.setMediaUrl(request.getMediaUrls().get(0));
-                }
+                post.setMediaUrl(request.getMediaUrls().get(0));
                 post.setMediaType("IMAGE");
                 post.setTag("AUCTION".equalsIgnoreCase(request.getSellingMethod()) ? "AUCTION" : "DIRECT");
                 post.setLikesCount(0);
                 post.setSharesCount(0);
                 communityPostRepository.save(post);
-                log.info("Created real-time community post for community '{}' from listing '{}'", comm.getName(), saved.getTitle());
-            });
-        } else if ("GLOBAL".equalsIgnoreCase(request.getSellingScope()) || request.getSellingScope() == null) {
-            // If listing is GLOBAL (or default), create a global post visible on the Home screen Posts feed
-            CommunityPost post = new CommunityPost();
-            post.setAuthor(seller);
-            post.setCommunity(null);
-            post.setListing(saved);
-            String priceFormatted = "₹" + (request.getPrice() != null ? request.getPrice().toPlainString() : "0");
-            String content = request.getTitle() + " • " + priceFormatted + (request.getDescription() != null && !request.getDescription().isBlank() ? "\n" + request.getDescription() : "");
-            post.setContent(content);
-            if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
-                post.setMediaUrl(request.getMediaUrls().get(0));
+                log.info("Created global post for Home screen Posts feed from listing '{}'", saved.getTitle());
             }
-            post.setMediaType("IMAGE");
-            post.setTag("AUCTION".equalsIgnoreCase(request.getSellingMethod()) ? "AUCTION" : "DIRECT");
-            post.setLikesCount(0);
-            post.setSharesCount(0);
-            communityPostRepository.save(post);
-            log.info("Created global post for Home screen Posts feed from listing '{}'", saved.getTitle());
         }
 
         log.info("Created new listing {} titled '{}' for seller {}", saved.getId(), saved.getTitle(), sellerId);
@@ -468,6 +471,7 @@ public class ListingService {
         dto.setBidsCount(l.getBidsCount());
         dto.setWishlisted(false);
         dto.setLikedByMe(isLiked);
+        dto.setStatus(l.getStatus() != null ? l.getStatus().name() : "ACTIVE");
 
         if (l.getCategory() != null) {
             dto.setCategoryName(l.getCategory().getName());
@@ -634,6 +638,7 @@ public class ListingService {
         dto.setLikesCount(l.getLikesCount());
         dto.setBidsCount(l.getBidsCount());
         dto.setWishlisted(false);
+        dto.setStatus(l.getStatus() != null ? l.getStatus().name() : "ACTIVE");
 
         if (l.getCategory() != null) {
             dto.setCategoryName(l.getCategory().getName());
@@ -694,6 +699,7 @@ public class ListingService {
         dto.setBidsCount(l.getBidsCount());
         dto.setWishlisted(false);
         dto.setLikedByMe(currentUserId != null && listingLikeRepository != null && listingLikeRepository.existsByUserIdAndListingId(currentUserId, l.getId()));
+        dto.setStatus(l.getStatus() != null ? l.getStatus().name() : "ACTIVE");
 
         if (l.getCategory() != null) {
             dto.setCategoryName(l.getCategory().getName());
@@ -917,15 +923,88 @@ public class ListingService {
                 Listing.ListingStatus ls = Listing.ListingStatus.valueOf(status.toUpperCase());
                 listings = listingRepository.findBySellerIdAndStatusOrderByCreatedAtDesc(sellerId, ls);
             } catch (Exception e) {
-                listings = listingRepository.findBySellerIdOrderByCreatedAtDesc(sellerId);
+                listings = listingRepository.findBySellerIdAndStatusNotOrderByCreatedAtDesc(sellerId, Listing.ListingStatus.DELETED);
             }
         } else {
-            listings = listingRepository.findBySellerIdOrderByCreatedAtDesc(sellerId);
+            listings = listingRepository.findBySellerIdAndStatusNotOrderByCreatedAtDesc(sellerId, Listing.ListingStatus.DELETED);
         }
 
         return listings.stream()
                 .map(l -> mapToCardDto(l, sellerId))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Updates an existing listing by its seller.
+     */
+    @Transactional
+    public ListingSummaryDto updateListing(UUID listingId, UUID sellerId, UpdateListingRequest request) {
+        Listing listing = listingRepository.findById(listingId)
+                .orElseThrow(() -> BidlyException.notFound("Listing not found: " + listingId));
+
+        if (listing.getSeller() == null || !listing.getSeller().getId().equals(sellerId)) {
+            throw BidlyException.forbidden("You are not authorized to edit this listing");
+        }
+
+        if (request.getTitle() != null && !request.getTitle().isBlank()) {
+            listing.setTitle(request.getTitle().trim());
+        }
+        if (request.getDescription() != null) {
+            listing.setDescription(request.getDescription().trim());
+        }
+        if (request.getPrice() != null && request.getPrice().compareTo(BigDecimal.ZERO) >= 0) {
+            listing.setPrice(request.getPrice());
+        }
+        if (request.getCondition() != null && !request.getCondition().isBlank()) {
+            try {
+                listing.setCondition(Listing.Condition.valueOf(request.getCondition().toUpperCase().replace(" ", "_")));
+            } catch (Exception ignored) {}
+        }
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            categoryRepository.findFirstByNameIgnoreCase(request.getCategory())
+                    .ifPresent(listing::setCategory);
+        }
+        if (request.getSubcategory() != null) {
+            listing.setSubcategory(request.getSubcategory());
+        }
+        if (request.getPurchaseDate() != null) {
+            listing.setPurchaseDate(request.getPurchaseDate());
+        }
+        if (request.getHasDamage() != null) {
+            listing.setHasDamage(request.getHasDamage());
+        }
+        if (request.getDamageDetails() != null) {
+            listing.setDamageDetails(request.getDamageDetails());
+        }
+        if (request.getReelUrl() != null && !request.getReelUrl().isBlank()) {
+            listing.setReelUrl(request.getReelUrl());
+        }
+        if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
+            listing.setPrimaryImageUrl(request.getMediaUrls().get(0));
+        }
+        if (request.getCity() != null) listing.setCity(request.getCity());
+        if (request.getState() != null) listing.setState(request.getState());
+        if (request.getLocality() != null) listing.setLocality(request.getLocality());
+
+        Listing saved = listingRepository.save(listing);
+        return mapToSummaryDto(saved, sellerId);
+    }
+
+    /**
+     * Soft-deletes a listing by marking status as DELETED.
+     */
+    @Transactional
+    public void deleteListing(UUID listingId, UUID sellerId) {
+        Listing listing = listingRepository.findById(listingId)
+                .orElseThrow(() -> BidlyException.notFound("Listing not found: " + listingId));
+
+        if (listing.getSeller() == null || !listing.getSeller().getId().equals(sellerId)) {
+            throw BidlyException.forbidden("You are not authorized to delete this listing");
+        }
+
+        listing.setStatus(Listing.ListingStatus.DELETED);
+        listingRepository.save(listing);
+        log.info("[DELETE_LISTING] Listing {} soft-deleted by seller {}", listingId, sellerId);
     }
 
     /**

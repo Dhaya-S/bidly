@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/top_seller_model.dart';
+import '../providers/explore_provider.dart';
 
-class TopSellerCard extends StatelessWidget {
+class TopSellerCard extends ConsumerWidget {
   final TopSellerModel seller;
 
   const TopSellerCard({
@@ -11,13 +12,12 @@ class TopSellerCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
-      width: 115,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      width: 116,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
         boxShadow: [
           BoxShadow(
@@ -27,95 +27,66 @@ class TopSellerCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Circle Avatar with verified badge
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF004E54), Color(0xFF2DD4BF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: CircleAvatar(
-                  radius: 20,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            ref.read(exploreProvider.notifier).updateSearchQuery(seller.name);
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Solid Vibrant Initials Avatar
+                CircleAvatar(
+                  radius: 22,
                   backgroundColor: seller.avatarColor,
                   child: Text(
-                    seller.initials,
+                    seller.initials.toUpperCase(),
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                bottom: -2,
-                right: -2,
-                child: Container(
-                  padding: const EdgeInsets.all(1.5),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.verified, size: 13, color: AppTheme.primary),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
+                const SizedBox(height: 8),
 
-          // Name
-          Text(
-            seller.name,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textPrimary,
+                // Seller Name
+                Text(
+                  seller.name,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 2),
+
+                // Listings Count (e.g. 12 listings)
+                Text(
+                  '${seller.listingsCount} listings',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 3),
-
-          // Rating + Sales
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.star_rounded, size: 12, color: Color(0xFFF59E0B)),
-              const SizedBox(width: 2),
-              Text(
-                '${seller.rating}',
-                style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '(${seller.listingsCount})',
-                style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 10,
-                  color: Color(0xFF94A3B8),
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -8,6 +8,7 @@ import java.util.UUID;
 public class AuctionDetailsDto {
     private UUID listingId;
     private String title;
+    private String description;
     private String productCondition;
     private String primaryImageUrl;
     private List<String> imageUrls;
@@ -48,6 +49,9 @@ public class AuctionDetailsDto {
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 
     public String getProductCondition() { return productCondition; }
     public void setProductCondition(String productCondition) { this.productCondition = productCondition; }

@@ -48,6 +48,8 @@ public class CreateListingRequest {
 
     private String reelUrl;
 
+    private String primaryImageUrl;
+
     private List<String> mediaUrls = new ArrayList<>();
 
     private String city;
@@ -105,6 +107,9 @@ public class CreateListingRequest {
 
     public String getReelUrl() { return reelUrl; }
     public void setReelUrl(String reelUrl) { this.reelUrl = reelUrl; }
+
+    public String getPrimaryImageUrl() { return primaryImageUrl; }
+    public void setPrimaryImageUrl(String primaryImageUrl) { this.primaryImageUrl = primaryImageUrl; }
 
     public List<String> getMediaUrls() { return mediaUrls; }
     public void setMediaUrls(List<String> mediaUrls) { this.mediaUrls = mediaUrls; }

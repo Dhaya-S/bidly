@@ -40,6 +40,9 @@ public class PostDto {
     private BigDecimal currentBid;
     private Instant auctionEndTime;
     private Integer bidsCount;
+    private String listingTitle;
+    private String listingDescription;
+    private Double distanceKm;
 
     public PostDto() {}
 
@@ -108,4 +111,13 @@ public class PostDto {
 
     public Integer getBidsCount() { return bidsCount; }
     public void setBidsCount(Integer bidsCount) { this.bidsCount = bidsCount; }
+
+    public String getListingTitle() { return listingTitle; }
+    public void setListingTitle(String listingTitle) { this.listingTitle = listingTitle; }
+
+    public String getListingDescription() { return listingDescription; }
+    public void setListingDescription(String listingDescription) { this.listingDescription = listingDescription; }
+
+    public Double getDistanceKm() { return distanceKm; }
+    public void setDistanceKm(Double distanceKm) { this.distanceKm = distanceKm; }
 }

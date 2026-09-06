@@ -1,7 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
 import '../models/listing_model.dart';
@@ -17,19 +16,18 @@ class DealNearYouCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAuction = listing.isAuction;
-    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ', decimalDigits: 0);
 
     return Container(
-      width: 180,
+      width: 182,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.1),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF004E54).withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -42,7 +40,7 @@ class DealNearYouCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image Stack with Badges
+              // Image Stack with Badges & Distance Overlay
               Stack(
                 children: [
                   ClipRRect(
@@ -53,8 +51,8 @@ class DealNearYouCard extends StatelessWidget {
                             height: 105,
                             width: double.infinity,
                             fit: BoxFit.cover,
-                            memCacheWidth: 350,
-                            memCacheHeight: 350,
+                            memCacheWidth: 380,
+                            memCacheHeight: 380,
                             maxWidthDiskCache: 500,
                             maxHeightDiskCache: 500,
                             placeholder: (_, __) => Container(
@@ -62,9 +60,9 @@ class DealNearYouCard extends StatelessWidget {
                               color: const Color(0xFFF1F5F9),
                               child: const Center(
                                 child: SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 1.8, color: AppTheme.primary),
                                 ),
                               ),
                             ),
@@ -72,7 +70,7 @@ class DealNearYouCard extends StatelessWidget {
                               height: 105,
                               color: const Color(0xFFEDF5F5),
                               child: const Center(
-                                child: Icon(Icons.image_outlined, color: AppTheme.primary, size: 28),
+                                child: Icon(Icons.image_outlined, color: AppTheme.primary, size: 26),
                               ),
                             ),
                           )
@@ -80,35 +78,62 @@ class DealNearYouCard extends StatelessWidget {
                             height: 105,
                             color: const Color(0xFFEDF5F5),
                             child: const Center(
-                              child: Icon(Icons.image_outlined, color: AppTheme.primary, size: 28),
+                              child: Icon(Icons.image_outlined, color: AppTheme.primary, size: 26),
                             ),
                           ),
                   ),
 
-                  // Top-Left Deal / Direct Badge
+                  // Top-Left Badge: BIDDING (red) or DIRECT BUY (dark teal)
                   Positioned(
-                    top: 6,
-                    left: 6,
+                    top: 7,
+                    left: 7,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 7.5, vertical: 3),
                       decoration: BoxDecoration(
-                        color: isAuction ? const Color(0xFFEF4444) : const Color(0xFF0D9488),
-                        borderRadius: BorderRadius.circular(10),
+                        color: isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
+                        borderRadius: BorderRadius.circular(7),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 3,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        isAuction ? 'BIDDING' : 'DIRECT BUY',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Bottom-Left Distance Overlay Pill: 📍 X.X km
+                  Positioned(
+                    bottom: 6,
+                    left: 7,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            isAuction ? Icons.timer_outlined : Icons.local_fire_department,
-                            size: 10,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(width: 3),
+                          const Icon(Icons.location_on, size: 9, color: Colors.white),
+                          const SizedBox(width: 2.5),
                           Text(
-                            isAuction ? listing.timeLeft : 'HOT DEAL',
+                            '${listing.distanceKm.toStringAsFixed(1)} km',
                             style: const TextStyle(
+                              fontFamily: 'Poppins',
                               fontSize: 9,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w600,
                               color: Colors.white,
                             ),
                           ),
@@ -117,48 +142,28 @@ class DealNearYouCard extends StatelessWidget {
                     ),
                   ),
 
-                  // Top-Right Discount Pill
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        '25% OFF',
-                        style: TextStyle(
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Bottom-Right Reel Video Indicator
+                  // Bottom-Right Reel Video Indicator (if available)
                   if (listing.reelUrl != null && listing.reelUrl!.trim().isNotEmpty)
                     Positioned(
                       bottom: 6,
-                      right: 6,
+                      right: 7,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(6),
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(5),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.play_arrow_rounded, color: Colors.white, size: 12),
+                            Icon(Icons.play_arrow_rounded, color: Colors.white, size: 11),
                             SizedBox(width: 2),
                             Text(
                               'Reel',
                               style: TextStyle(
+                                fontFamily: 'Poppins',
                                 color: Colors.white,
-                                fontSize: 9,
+                                fontSize: 8.5,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -169,76 +174,82 @@ class DealNearYouCard extends StatelessWidget {
                 ],
               ),
 
-              // Card Info
+              // Card Info & Action (Strictly bounded to prevent overflow)
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+                padding: const EdgeInsets.fromLTRB(9, 6, 9, 8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Price Row with Strikethrough
-                    Row(
-                      children: [
-                        Text(
-                          listing.formattedPrice,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          currencyFormatter.format(listing.price * 1.33),
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            color: Color(0xFF94A3B8),
-                            decoration: TextDecoration.lineThrough,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-
                     // Title
                     Text(
                       listing.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
+                        fontFamily: 'Poppins',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+
+                    // Price
+                    Text(
+                      listing.formattedPrice,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
                       ),
                     ),
                     const SizedBox(height: 3),
 
-                    // Locality + Distance
-                    Row(
-                      children: [
-                        const Icon(Icons.location_on_outlined, size: 11, color: Color(0xFF64748B)),
-                        const SizedBox(width: 2),
-                        Expanded(
-                          child: Text(
-                            '${listing.locality ?? listing.city ?? 'Near You'} ? ${listing.distanceKm.toStringAsFixed(1)} km',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    // Sub-info: Auction red timer (🕒 2h 14m) OR Direct Buy locality (📍 Adyar)
+                    if (isAuction)
+                      Row(
+                        children: [
+                          const Icon(Icons.access_time_rounded, size: 11, color: Color(0xFFEF4444)),
+                          const SizedBox(width: 3),
+                          Text(
+                            listing.timeLeft,
                             style: const TextStyle(
-                              fontSize: 10,
-                              color: Color(0xFF64748B),
-                              fontWeight: FontWeight.w500,
+                              fontFamily: 'Poppins',
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFEF4444),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      )
+                    else
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 11, color: Color(0xFF64748B)),
+                          const SizedBox(width: 2),
+                          Expanded(
+                            child: Text(
+                              listing.locality ?? listing.city ?? 'Nearby',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 6),
 
-                    // CTA Button
+                    // Full-width Action Button: Red "Bid Now" or Dark Teal "Make Offer"
                     SizedBox(
                       width: double.infinity,
-                      height: 28,
+                      height: 30,
                       child: ElevatedButton(
                         onPressed: () {
                           if (!isAuction) {
@@ -248,7 +259,7 @@ class DealNearYouCard extends StatelessWidget {
                           }
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: isAuction ? const Color(0xFFEF4444) : AppTheme.primary,
+                          backgroundColor: isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
                           foregroundColor: Colors.white,
                           padding: EdgeInsets.zero,
                           elevation: 0,
@@ -259,6 +270,7 @@ class DealNearYouCard extends StatelessWidget {
                         child: Text(
                           isAuction ? 'Bid Now' : 'Make Offer',
                           style: const TextStyle(
+                            fontFamily: 'Poppins',
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                           ),

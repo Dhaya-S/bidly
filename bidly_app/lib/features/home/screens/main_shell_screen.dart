@@ -8,6 +8,7 @@ import 'home_feed_screen.dart';
 import '../../explore/screens/explore_screen.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../community/screens/communities_screen.dart';
+import '../../community/providers/community_provider.dart';
 
 final selectedNavIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -62,6 +63,12 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
       _currentIndex = navIndex;
     }
 
+    final communityState = ref.watch(communityProvider);
+    final int totalCommunityUnread = communityState.myCommunities.fold<int>(
+      0,
+      (sum, c) => sum + c.unreadCount,
+    );
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: IndexedStack(
@@ -109,13 +116,13 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
                 // Center + Sell Button
                 _buildSellButton(),
 
-                // Community Tab (with notification badge '2')
+                // Community Tab (with real-time unread badge)
                 _buildNavItem(
                   index: 3,
                   icon: Icons.people_outline_rounded,
                   activeIcon: Icons.people_rounded,
                   label: 'Community',
-                  badgeCount: 2,
+                  badgeCount: totalCommunityUnread > 0 ? totalCommunityUnread : null,
                 ),
 
                 // Profile Tab

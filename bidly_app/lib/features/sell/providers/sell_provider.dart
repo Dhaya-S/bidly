@@ -9,6 +9,8 @@ import '../../auth/providers/auth_provider.dart';
 import '../../explore/models/listing_model.dart';
 import '../../explore/providers/explore_provider.dart';
 import '../../home/providers/reels_provider.dart';
+import '../../posts/providers/posts_provider.dart';
+import '../../profile/providers/my_listings_provider.dart';
 
 class SellState {
   final bool isLoading;
@@ -374,16 +376,16 @@ class SellNotifier extends StateNotifier<SellState> {
 
     // 2. Upload reel video to Cloudflare R2 if present (with companion thumbnail extraction)
     String? r2ReelUrl;
+    String? r2PrimaryThumb;
     if (state.reelPath != null && state.reelPath!.isNotEmpty) {
       final file = File(state.reelPath!);
       if (file.existsSync()) {
         final uploadResult = await _uploadMediaToR2(state.reelPath!, folder: 'listings/reels');
         if (uploadResult != null && uploadResult['url'] != null && uploadResult['url']!.isNotEmpty) {
           r2ReelUrl = uploadResult['url'];
-          // If seller did not select photos, use the auto-generated thumbnail as the listing's primary image!
           final thumb = uploadResult['thumbnailUrl'];
-          if (r2MediaUrls.isEmpty && thumb != null && thumb.isNotEmpty) {
-            r2MediaUrls.add(thumb);
+          if (thumb != null && thumb.isNotEmpty) {
+            r2PrimaryThumb = thumb;
           }
         } else {
           state = state.copyWith(
@@ -395,6 +397,10 @@ class SellNotifier extends StateNotifier<SellState> {
       } else {
         debugPrint('Reel file at ${state.reelPath} not found on disk, skipping reel.');
       }
+    }
+
+    if (r2PrimaryThumb == null && r2MediaUrls.isNotEmpty) {
+      r2PrimaryThumb = r2MediaUrls.first;
     }
 
     // Convert condition to enum format
@@ -454,6 +460,7 @@ class SellNotifier extends StateNotifier<SellState> {
       'bidIncrement': state.bidIncrement ?? 100.0,
       'auctionEndTime': auctionEndIso,
       'mediaUrls': r2MediaUrls,
+      'primaryImageUrl': r2PrimaryThumb,
       'reelUrl': r2ReelUrl,
       'sellerId': user?.id,
       'sellerName': user?.name,
@@ -474,9 +481,20 @@ class SellNotifier extends StateNotifier<SellState> {
 
         state = state.copyWith(isLoading: false, createdListing: created);
 
-        // Refresh explore feed and home reels feed so new item shows immediately
+        // 1. If reel is present, immediately insert into Reels feed (Feed section only)
+        if (created.reelUrl != null && created.reelUrl!.trim().isNotEmpty) {
+          _ref.read(reelsProvider.notifier).insertNewReel(created);
+          _ref.read(reelsProvider.notifier).fetchReels(isRefresh: true);
+        }
+
+        // 2. Real-time refresh explore feed & my listings
         _ref.read(exploreProvider.notifier).fetchExploreData(isRefresh: true);
-        _ref.read(reelsProvider.notifier).fetchReels(isRefresh: true);
+        _ref.read(myListingsProvider.notifier).fetchMyListings();
+
+        // 3. Only refresh posts feed if photos were actually uploaded (post exists)
+        if (state.photos.isNotEmpty) {
+          _ref.read(postsProvider.notifier).fetchFeed(isRefresh: true);
+        }
         return true;
       } else {
         final msg = response.data?['message']?.toString() ?? 'Failed to list product';
@@ -487,6 +505,111 @@ class SellNotifier extends StateNotifier<SellState> {
       state = state.copyWith(
         isLoading: false,
         errorMessage: 'Unable to connect to server. Please try again.',
+      );
+      return false;
+    }
+  }
+
+  void loadForEditing(ListingModel listing) {
+    List<String> existingPhotos = [];
+    if (listing.imageUrls.isNotEmpty) {
+      existingPhotos.addAll(listing.imageUrls);
+    } else if (listing.primaryImageUrl != null && listing.primaryImageUrl!.isNotEmpty) {
+      existingPhotos.add(listing.primaryImageUrl!);
+    }
+
+    String displayCondition = 'Good';
+    final cond = listing.condition.toUpperCase().replaceAll('_', ' ');
+    if (cond.contains('NEW')) {
+      displayCondition = 'Like New';
+    } else if (cond.contains('EXCELLENT')) {
+      displayCondition = 'Excellent';
+    } else if (cond.contains('GOOD')) {
+      displayCondition = 'Good';
+    } else if (cond.contains('FAIR')) {
+      displayCondition = 'Fair';
+    } else if (cond.contains('POOR')) {
+      displayCondition = 'Poor';
+    }
+
+    state = state.copyWith(
+      title: listing.title,
+      description: listing.description,
+      price: listing.price,
+      category: (listing.categoryName != null && listing.categoryName!.isNotEmpty)
+          ? listing.categoryName!
+          : 'Electronics',
+      subcategory: (listing.subcategory != null && listing.subcategory!.isNotEmpty)
+          ? listing.subcategory!
+          : 'Phones',
+      condition: displayCondition,
+      purchaseDate: listing.purchaseDate,
+      hasDamage: listing.hasDamage,
+      damageDetails: listing.damageDetails,
+      photos: existingPhotos,
+      reelPath: listing.reelUrl,
+      sellingMethod: listing.sellingMethod.toUpperCase() == 'AUCTION' ? 'AUCTION' : 'DIRECT_BUY',
+      communityName: listing.communityName,
+    );
+  }
+
+  Future<bool> updateListing(String listingId) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+
+    List<String> r2MediaUrls = [];
+    for (final photoPath in state.photos) {
+      if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
+        r2MediaUrls.add(photoPath);
+      } else {
+        final uploadedUrl = await _uploadFileToR2(photoPath, folder: 'listings/photos');
+        if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
+          r2MediaUrls.add(uploadedUrl);
+        }
+      }
+    }
+
+    String? r2ReelUrl = state.reelPath;
+    if (state.reelPath != null &&
+        !state.reelPath!.startsWith('http') &&
+        File(state.reelPath!).existsSync()) {
+      final uploadResult = await _uploadMediaToR2(state.reelPath!, folder: 'listings/reels');
+      if (uploadResult != null && uploadResult['url'] != null) {
+        r2ReelUrl = uploadResult['url'];
+      }
+    }
+
+    String conditionEnum = state.condition.toUpperCase().replaceAll(' ', '_');
+
+    final payload = {
+      'category': state.category,
+      'subcategory': state.subcategory,
+      'title': state.title,
+      'description': state.description,
+      'price': state.price,
+      'condition': conditionEnum,
+      'purchaseDate': state.purchaseDate,
+      'hasDamage': state.hasDamage,
+      'damageDetails': state.damageDetails,
+      'mediaUrls': r2MediaUrls,
+      'reelUrl': r2ReelUrl,
+    };
+
+    try {
+      final response = await _apiClient.dio.put('/listings/$listingId', data: payload);
+
+      if (response.data != null && response.data['success'] == true) {
+        state = state.copyWith(isLoading: false);
+        _ref.read(exploreProvider.notifier).fetchExploreData(isRefresh: true);
+        return true;
+      } else {
+        final msg = response.data?['message']?.toString() ?? 'Failed to update product';
+        state = state.copyWith(isLoading: false, errorMessage: msg);
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Failed to update listing. Please try again.',
       );
       return false;
     }

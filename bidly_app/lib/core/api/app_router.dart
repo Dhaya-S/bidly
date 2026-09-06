@@ -173,6 +173,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const SellItemScreen(),
       ),
       GoRoute(
+        path: AppRoutes.editListing,
+        name: 'editListing',
+        builder: (ctx, state) {
+          ListingModel? listing;
+          if (state.extra is ListingModel) {
+            listing = state.extra as ListingModel;
+          } else if (state.extra is Map<String, dynamic>) {
+            final map = state.extra as Map<String, dynamic>;
+            listing = map['listing'] as ListingModel?;
+          }
+          return SellItemScreen(listingToEdit: listing, isEditing: true);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.listingDetail,
         name: 'listingDetail',
         builder: (ctx, state) {
@@ -243,6 +257,60 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/chat/:listingId',
+        builder: (ctx, state) {
+          final id = state.pathParameters['listingId'] ?? '';
+          ListingModel? listing;
+          String? buyerId = state.uri.queryParameters['buyerId'];
+          String? offerId = state.uri.queryParameters['offerId'];
+          String? orderId = state.uri.queryParameters['orderId'];
+          String? buyerName = state.uri.queryParameters['buyerName'];
+          String? roomId = state.uri.queryParameters['roomId'];
+          String? productTitle;
+          double? productPrice;
+          String? listingImageUrl;
+          String? sellerId;
+          bool? isSellerView;
+
+          if (state.extra is ListingModel) {
+            listing = state.extra as ListingModel;
+          } else if (state.extra is Map<String, dynamic>) {
+            final map = state.extra as Map<String, dynamic>;
+            listing = map['listing'] as ListingModel?;
+            buyerId ??= map['buyerId'] as String?;
+            offerId ??= map['offerId'] as String?;
+            orderId ??= map['orderId'] as String?;
+            buyerName ??= map['buyerName'] as String?;
+            roomId ??= map['roomId'] as String?;
+            productTitle = map['productTitle'] as String?;
+            productPrice = (map['productPrice'] is num) ? (map['productPrice'] as num).toDouble() : null;
+            listingImageUrl = map['listingImageUrl'] as String?;
+            sellerId = map['sellerId'] as String?;
+            isSellerView = map['isSeller'] as bool? ?? map['isSellerView'] as bool?;
+          }
+
+          sellerId ??= state.uri.queryParameters['sellerId'] ?? listing?.sellerId;
+          if (state.uri.queryParameters['isSeller'] != null) {
+            isSellerView ??= state.uri.queryParameters['isSeller'] == 'true';
+          }
+
+          return OfferChatScreen(
+            listingId: id,
+            listing: listing,
+            buyerId: buyerId,
+            sellerId: sellerId,
+            isSellerView: isSellerView,
+            offerId: offerId,
+            orderId: orderId,
+            buyerName: buyerName,
+            roomId: roomId,
+            productTitle: productTitle,
+            productPrice: productPrice,
+            listingImageUrl: listingImageUrl,
+          );
+        },
+      ),
+      GoRoute(
         path: AppRoutes.auctionBid,
         name: 'auctionBid',
         builder: (ctx, state) {
@@ -255,14 +323,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'auctionTracker',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
-          return AuctionTrackerScreen(listingId: id);
+          final isSeller = state.uri.queryParameters['isSeller'] == 'true';
+          return AuctionTrackerScreen(listingId: id, isSellerRoute: isSeller);
         },
       ),
       GoRoute(
         path: '/auction/tracker/:id',
         builder: (ctx, state) {
           final id = state.pathParameters['id'] ?? '';
-          return AuctionTrackerScreen(listingId: id);
+          final isSeller = state.uri.queryParameters['isSeller'] == 'true';
+          return AuctionTrackerScreen(listingId: id, isSellerRoute: isSeller);
         },
       ),
       GoRoute(

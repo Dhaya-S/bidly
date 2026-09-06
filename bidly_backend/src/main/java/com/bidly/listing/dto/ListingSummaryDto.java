@@ -40,6 +40,8 @@ public class ListingSummaryDto {
     private int likesCount;
     private int bidsCount;
 
+    private String status;
+
     @com.fasterxml.jackson.annotation.JsonProperty("isLikedByMe")
     private boolean isLikedByMe;
 
@@ -47,6 +49,9 @@ public class ListingSummaryDto {
     public boolean getLikedByMe() {
         return isLikedByMe;
     }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 
     public ListingSummaryDto() {}
 

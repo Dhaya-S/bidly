@@ -112,6 +112,8 @@ public class OrderService {
                     ? req.getMeetupTime()
                     : Instant.now().plus(Duration.ofHours(24)));
             order.setStatus(Order.OrderStatus.ORDER_CONFIRMED);
+            order.setIsMeetupConfirmed(false);
+            order.setClientActionId(null);
 
             Order saved = orderRepository.save(order);
             trackingEventRepository.save(new OrderTrackingEvent(saved, Order.OrderStatus.ORDER_CONFIRMED, "Offer Accepted & Meetup Scheduled", "In-person meetup confirmed at " + saved.getMeetupLocation(), Instant.now()));
@@ -163,8 +165,11 @@ public class OrderService {
         if (req.getNotes() != null) {
             order.setMeetupNotes(req.getNotes().trim());
         }
-        if (req.getClientActionId() != null) {
+        order.setIsMeetupConfirmed(false);
+        if (req.getClientActionId() != null && !req.getClientActionId().isBlank()) {
             order.setClientActionId(req.getClientActionId().trim());
+        } else {
+            order.setClientActionId(null);
         }
 
         if (order.getMeetupOtp() == null || order.getMeetupOtp().isBlank()) {
@@ -251,7 +256,8 @@ public class OrderService {
             throw BidlyException.forbidden("Only order participants can confirm this meetup");
         }
 
-        order.setClientActionId("MEETUP_CONFIRMED");
+        order.setIsMeetupConfirmed(true);
+        order.setClientActionId(null);
         Order saved = orderRepository.save(order);
 
         // Record tracking event
@@ -725,6 +731,13 @@ public class OrderService {
         order.setDeliveredAt(Instant.now());
         orderRepository.save(order);
 
+        // Mark listing as SOLD
+        Listing listing = order.getListing();
+        if (listing != null && listing.getStatus() != Listing.ListingStatus.SOLD) {
+            listing.setStatus(Listing.ListingStatus.SOLD);
+            listingRepository.save(listing);
+        }
+
         // Credit payment to seller
         walletService.topUpFunds(
                 order.getSeller().getId(),
@@ -745,8 +758,8 @@ public class OrderService {
                 order.getSeller(),
                 com.bidly.notification.entity.Notification.NotificationType.TRANSACTION_COMPLETED,
                 "Delivery Confirmed",
-                order.getBuyer().getName() + " confirmed receipt of " + order.getListing().getTitle() + ". Escrow payout released!",
-                order.getListing(),
+                order.getBuyer().getName() + " confirmed receipt of " + (listing != null ? listing.getTitle() : "the item") + ". Escrow payout released!",
+                listing,
                 order.getOffer(),
                 order,
                 "View Sale Details",
@@ -754,6 +767,41 @@ public class OrderService {
                 order.getId(),
                 null
         );
+
+        // Disclose real-time chat card to room
+        if (listing != null) {
+            chatRoomRepository.findByListingIdAndBuyerId(listing.getId(), order.getBuyer().getId()).ifPresent(room -> {
+                try {
+                    com.bidly.chat.entity.ChatMessage msg = new com.bidly.chat.entity.ChatMessage();
+                    msg.setRoomId(room.getId());
+                    msg.setSenderId(currentUserId);
+                    msg.setContent("Delivery confirmed! Payment of ₹" + String.format("%,.0f", order.getAmount()) + " has been released to the seller from escrow.");
+                    msg.setType(com.bidly.chat.entity.ChatMessage.MessageType.ORDER_UPDATE);
+
+                    Map<String, Object> meta = new HashMap<>();
+                    meta.put("eventType", "TRANSACTION_COMPLETED");
+                    meta.put("orderId", order.getId().toString());
+                    meta.put("listingId", listing.getId().toString());
+                    meta.put("status", "SOLD");
+                    meta.put("amount", order.getAmount());
+
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    msg.setMetadata(mapper.writeValueAsString(meta));
+                    chatMessageRepository.save(msg);
+
+                    messagingTemplate.convertAndSend("/topic/chat/" + room.getId(), msg);
+
+                    Map<String, Object> eventData = new HashMap<>();
+                    eventData.put("eventType", "TRANSACTION_COMPLETED");
+                    eventData.put("orderId", order.getId());
+                    eventData.put("listingId", listing.getId());
+                    eventData.put("status", "SOLD");
+                    messagingTemplate.convertAndSend("/topic/chats/" + room.getId(), (Object) eventData);
+                } catch (Exception e) {
+                    log.warn("[CONFIRM_DELIVERY_CHAT] Failed to broadcast to chat: {}", e.getMessage());
+                }
+            });
+        }
 
         return mapToSummaryDto(order);
     }
@@ -808,7 +856,7 @@ public class OrderService {
         dto.setMeetupTime(o.getMeetupTime());
         dto.setMeetupOtp(o.getMeetupOtp());
         dto.setMeetupOtpVerified(o.getMeetupOtpVerified() != null ? o.getMeetupOtpVerified() : false);
-        dto.setMeetupConfirmed("MEETUP_CONFIRMED".equals(o.getClientActionId()) || Boolean.TRUE.equals(o.getMeetupOtpVerified()));
+        dto.setMeetupConfirmed(Boolean.TRUE.equals(o.getIsMeetupConfirmed()) || "MEETUP_CONFIRMED".equals(o.getClientActionId()) || Boolean.TRUE.equals(o.getMeetupOtpVerified()));
         if (o.getOffer() != null) {
             dto.setOfferId(o.getOffer().getId());
         }

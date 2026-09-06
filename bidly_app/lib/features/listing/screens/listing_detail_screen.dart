@@ -6,11 +6,14 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../../core/widgets/bidly_loading_indicator.dart';
 import '../../auction/models/auction_model.dart';
 import '../../auction/providers/auction_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../explore/models/listing_model.dart';
+import '../../profile/providers/my_listings_provider.dart';
 
 class ListingDetailScreen extends ConsumerStatefulWidget {
   final String listingId;
@@ -161,6 +164,144 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
     Share.share('Check out "${_listing!.title}" on Bidly for ${_listing!.formattedPrice}!');
   }
 
+  void _showDeleteConfirmationDialog(ListingModel listing) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Red trash icon in light red circle (Matching design Frame 3)
+              Container(
+                width: 56,
+                height: 56,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFEE2E2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Color(0xFFEF4444),
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Title
+              const Text(
+                'Delete permanently?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1E232A),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Subtitle / message
+              const Text(
+                'This item will be deleted and can\'t be recovered. Are you sure you want to continue?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  color: Color(0xFF64748B),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          Navigator.of(dialogCtx).pop();
+                          final success = await ref
+                              .read(myListingsProvider.notifier)
+                              .deleteListing(listing.id);
+
+                          if (!mounted) return;
+                          if (success) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Post deleted successfully'),
+                                backgroundColor: Color(0xFF004E54),
+                              ),
+                            );
+                            context.pop(true);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Failed to delete post. Please try again.'),
+                                backgroundColor: AppTheme.error,
+                              ),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Delete',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _disposeVideoController();
@@ -218,6 +359,9 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
 
     final isDirectSale = !listing.isAuction;
     final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+    final currentUserId = ref.watch(authProvider).user?.id;
+    final isOwner = currentUserId != null && (listing.sellerId == currentUserId);
 
     final auctionState = ref.watch(auctionProvider);
     final auctionDetails = auctionState.auctionDetails;
@@ -297,8 +441,8 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
       ),
       body: Column(
         children: [
-          // Top Min Next Bid Bar (Only for Live Auction)
-          if (!isDirectSale)
+          // Top Min Next Bid Bar (Only for Live Auction and Buyers)
+          if (!isDirectSale && !isOwner)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: const BoxDecoration(
@@ -803,14 +947,49 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        listing.title,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.textPrimary,
-                          letterSpacing: -0.3,
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              listing.title,
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.textPrimary,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ),
+                          if (isOwner) ...[
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () async {
+                                final updated = await context.push(
+                                  AppRoutes.editListing,
+                                  extra: listing,
+                                );
+                                if (updated == true && mounted) {
+                                  _fetchListingDetails();
+                                  ref.read(myListingsProvider.notifier).fetchMyListings();
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.edit_outlined,
+                                  size: 20,
+                                  color: Color(0xFF475569),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 8),
                       if (isDirectSale) ...[
@@ -999,10 +1178,40 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                if (isOwner) ...[
+                  const SizedBox(height: 24),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton(
+                        onPressed: () => _showDeleteConfirmationDialog(listing),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Delete Post',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                ] else ...[
+                  const SizedBox(height: 12),
 
-                // Seller Card
-                Padding(
+                  // Seller Card
+                  Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Container(
                     width: double.infinity,
@@ -1245,29 +1454,31 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                     ),
                   ),
                 ],
+                ],
 
                 const SizedBox(height: 24),
               ],
             ),
           ),
 
-          // Sticky Bottom Bar
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, -3),
-                  ),
-                ],
-              ),
+          // Sticky Bottom Bar (Only for buyers)
+          if (!isOwner)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, -3),
+                    ),
+                  ],
+                ),
               child: SafeArea(
                 top: false,
                 child: Row(

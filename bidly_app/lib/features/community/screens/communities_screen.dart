@@ -283,7 +283,7 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 100),
               ],
             ),
           ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
 import '../providers/my_listings_provider.dart';
@@ -186,35 +188,49 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
               ),
             ),
 
-            // ── Listings List ──────────────────────────────────
+            // ── Listings List with Pull-to-Refresh ───────────────
             Expanded(
-              child: filteredList.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+              child: RefreshIndicator(
+                color: const Color(0xFF004E54),
+                onRefresh: () async {
+                  await ref.read(myListingsProvider.notifier).fetchMyListings();
+                },
+                child: filteredList.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
                         children: [
-                          const Icon(Icons.storefront_outlined, size: 48, color: AppTheme.textHint),
-                          const SizedBox(height: 12),
-                          Text(
-                            'No ${listingsState.selectedFilter.toLowerCase()} listings found',
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 14,
-                              color: AppTheme.textSecondary,
+                          SizedBox(height: MediaQuery.of(context).size.height * 0.18),
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.storefront_outlined, size: 54, color: AppTheme.textHint),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No ${listingsState.selectedFilter.toLowerCase()} listings found',
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
+                      )
+                    : ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        itemCount: filteredList.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (ctx, idx) {
+                          final item = filteredList[idx];
+                          return _buildListingCard(item, isAuction);
+                        },
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      itemCount: filteredList.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (ctx, idx) {
-                        final item = filteredList[idx];
-                        return _buildListingCard(item, isAuction);
-                      },
-                    ),
+              ),
             ),
           ],
         ),
@@ -233,280 +249,297 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
     Color statusTextColor = const Color(0xFF10B981);
     String statusText = 'Active';
 
-    if (item.status.toUpperCase() == 'COMPLETED') {
+    final normStatus = item.status.toUpperCase();
+    if (normStatus == 'COMPLETED' || normStatus == 'SOLD') {
       statusBg = const Color(0xFFE0F2FE);
       statusTextColor = const Color(0xFF0369A1);
       statusText = 'Completed';
-    } else if (item.status.toUpperCase() == 'SHIPPING') {
+    } else if (normStatus == 'SHIPPING') {
       statusBg = const Color(0xFFEFF6FF);
       statusTextColor = const Color(0xFF3B82F6);
       statusText = 'Shipping';
-    } else if (item.status.toUpperCase() == 'CANCELLED') {
+    } else if (normStatus == 'CANCELLED') {
       statusBg = const Color(0xFFFEE2E2);
       statusTextColor = const Color(0xFFEF4444);
       statusText = 'Cancelled';
     }
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Thumbnail
-              Container(
-                width: 58,
-                height: 58,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Icon(
-                    item.title.toLowerCase().contains('macbook') || item.title.toLowerCase().contains('laptop')
-                        ? Icons.laptop_mac_rounded
-                        : (item.title.toLowerCase().contains('camera') || item.title.toLowerCase().contains('nikon')
-                            ? Icons.camera_alt_outlined
-                            : (item.title.toLowerCase().contains('headphone') || item.title.toLowerCase().contains('sony')
-                                ? Icons.headphones_outlined
-                                : (item.title.toLowerCase().contains('desk')
-                                    ? Icons.table_restaurant_outlined
-                                    : Icons.tablet_android_rounded))),
-                    color: const Color(0xFF004E54),
-                    size: 30,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-
-              // Title & Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            item.title,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.textPrimary,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: statusBg,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            statusText,
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: statusTextColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-
-                    // Price / Highest Bid
-                    Text(
-                      isAuction
-                          ? (item.status.toUpperCase() == 'SHIPPING'
-                              ? 'Sold: $priceFormatted'
-                              : 'Highest Bid: $priceFormatted')
-                          : priceFormatted,
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF004E54),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-
-                    // Time left / Bids / Subtext
-                    if (isAuction) ...[
-                      if (item.status.toUpperCase() == 'SHIPPING')
-                        Row(
-                          children: const [
-                            Icon(Icons.inventory_2_outlined, size: 12, color: Color(0xFF8B5CF6)),
-                            SizedBox(width: 4),
-                            Text(
-                              'In Transit',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 11,
-                                color: AppTheme.textSecondary,
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Row(
-                          children: [
-                            const Icon(Icons.timer_outlined, size: 12, color: AppTheme.textSecondary),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${item.timeLeft ?? "2h 14m"} · ${item.bidsCount} bids',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 11,
-                                color: AppTheme.textSecondary.withValues(alpha: 0.8),
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ],
-                ),
+        onTap: () async {
+          // Touch post opens Product Details screen in real-time
+          await context.push('/listing/${item.id}');
+          if (mounted) {
+            ref.read(myListingsProvider.notifier).fetchMyListings();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Thumbnail
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F4F6),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+                          ? CachedNetworkImage(
+                              imageUrl: ApiClient.resolveMediaUrl(item.imageUrl!),
+                              fit: BoxFit.cover,
+                              errorWidget: (_, __, ___) => _buildFallbackIcon(item.title),
+                            )
+                          : _buildFallbackIcon(item.title),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
 
-          // Action Buttons if Auction
-          if (isAuction) ...[
-            const SizedBox(height: 12),
-            if (item.status.toUpperCase() == 'ACTIVE')
-              SizedBox(
-                width: double.infinity,
-                height: 42,
-                child: ElevatedButton(
-                  onPressed: () {
-                    context.push('/auction/tracker/${item.id}');
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF004E54),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  // Title & Info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+                              decoration: BoxDecoration(
+                                color: statusBg,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                statusText,
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: statusTextColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+
+                        // Price / Highest Bid
+                        Text(
+                          isAuction
+                              ? (normStatus == 'SHIPPING'
+                                  ? 'Sold: $priceFormatted'
+                                  : 'Highest Bid: $priceFormatted')
+                              : priceFormatted,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF004E54),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+
+                        // Subtitle: Time left / Bids / Transit
+                        if (isAuction) ...[
+                          if (normStatus == 'SHIPPING')
+                            const Row(
+                              children: [
+                                Icon(Icons.inventory_2_outlined, size: 12, color: Color(0xFF3B82F6)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'In Transit',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            Row(
+                              children: [
+                                const Icon(Icons.timer_outlined, size: 12, color: AppTheme.textSecondary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${item.timeLeft ?? "Ended"} · ${item.bidsCount} bids',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.textSecondary.withValues(alpha: 0.9),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ],
+                    ),
                   ),
-                  child: const Text(
-                    'View Bids',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
+                ],
+              ),
+
+              // Action Buttons for Auction
+              if (isAuction) ...[
+                const SizedBox(height: 12),
+                if (normStatus == 'ACTIVE')
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        context.push('/auction/tracker/${item.id}?isSeller=true');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF004E54),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text(
+                        'View Bids',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  )
+                else if (normStatus == 'COMPLETED' || normStatus == 'SOLD')
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: OutlinedButton(
+                      onPressed: () {
+                        context.push('/my-listings/sale-summary/${item.id}');
+                      },
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE8F6F5),
+                        side: const BorderSide(color: Color(0xFFB8E0DC)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text(
+                        'View Sale Details',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF004E54),
+                        ),
+                      ),
+                    ),
+                  )
+                else if (normStatus == 'SHIPPING')
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        context.push(AppRoutes.orders);
+                      },
+                      icon: const Icon(Icons.inventory_2_outlined, size: 16),
+                      label: const Text(
+                        'View Shipping',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B82F6),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
                   ),
-                ),
-              )
-            else if (item.status.toUpperCase() == 'COMPLETED' || item.status.toUpperCase() == 'SOLD')
-              SizedBox(
-                width: double.infinity,
-                height: 42,
-                child: OutlinedButton(
-                  onPressed: () {
-                    context.push('/my-listings/sale-summary/${item.id}');
-                  },
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE8F6F5),
-                    side: const BorderSide(color: Color(0xFFB8E0DC)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text(
-                    'View Sale Details',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF004E54),
+              ],
+
+              // Action Buttons for Direct Buy
+              if (!isAuction && (normStatus == 'COMPLETED' || normStatus == 'SOLD')) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 42,
+                  child: OutlinedButton(
+                    onPressed: () {
+                      context.push('/my-listings/sale-summary/${item.id}');
+                    },
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE8F6F5),
+                      side: const BorderSide(color: Color(0xFFB8E0DC)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text(
+                      'View Sale Details',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF004E54),
+                      ),
                     ),
                   ),
                 ),
-              )
-            else if (item.status.toUpperCase() == 'SHIPPING')
-              SizedBox(
-                width: double.infinity,
-                height: 42,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    context.push(AppRoutes.orders);
-                  },
-                  icon: const Icon(Icons.inventory_2_outlined, size: 16),
-                  label: const Text(
-                    'View Shipping',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF3B82F6),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-              ),
-          ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-          // Action Buttons for Direct Buy
-          if (!isAuction) ...[
-            const SizedBox(height: 12),
-            if (item.status.toUpperCase() == 'COMPLETED' || item.status.toUpperCase() == 'SOLD')
-              SizedBox(
-                width: double.infinity,
-                height: 42,
-                child: OutlinedButton(
-                  onPressed: () {
-                    context.push('/my-listings/sale-summary/${item.id}');
-                  },
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE8F6F5),
-                    side: const BorderSide(color: Color(0xFFB8E0DC)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text(
-                    'View Sale Details',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF004E54),
-                    ),
-                  ),
-                ),
-              )
-            else if (item.status.toUpperCase() == 'ACTIVE')
-              SizedBox(
-                width: double.infinity,
-                height: 42,
-                child: ElevatedButton(
-                  onPressed: () {
-                    context.push(AppRoutes.chatList);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF004E54),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text(
-                    'View Offers & Chats',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-          ],
-        ],
+  Widget _buildFallbackIcon(String title) {
+    final lower = title.toLowerCase();
+    IconData iconData = Icons.devices_other_rounded;
+    if (lower.contains('macbook') || lower.contains('laptop')) {
+      iconData = Icons.laptop_mac_rounded;
+    } else if (lower.contains('camera') || lower.contains('nikon')) {
+      iconData = Icons.camera_alt_outlined;
+    } else if (lower.contains('headphone') || lower.contains('sony')) {
+      iconData = Icons.headphones_outlined;
+    } else if (lower.contains('desk') || lower.contains('table')) {
+      iconData = Icons.table_restaurant_outlined;
+    } else if (lower.contains('phone') || lower.contains('kindle')) {
+      iconData = Icons.tablet_android_rounded;
+    }
+
+    return Center(
+      child: Icon(
+        iconData,
+        color: const Color(0xFF004E54),
+        size: 30,
       ),
     );
   }

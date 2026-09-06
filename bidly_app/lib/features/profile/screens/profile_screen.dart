@@ -209,6 +209,8 @@ class ProfileScreen extends ConsumerWidget {
                               const SizedBox(height: 2),
                               Text(
                                 userEmail,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 12,
@@ -228,13 +230,17 @@ class ProfileScreen extends ConsumerWidget {
                                   children: [
                                     const Icon(Icons.location_on_outlined, size: 12, color: AppTheme.primary),
                                     const SizedBox(width: 3),
-                                    Text(
-                                      userCity,
-                                      style: const TextStyle(
-                                        fontFamily: 'Poppins',
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppTheme.primary,
+                                    Flexible(
+                                      child: Text(
+                                        userCity,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontFamily: 'Poppins',
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.primary,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -615,7 +621,7 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 100),
             ],
           ),
         ),

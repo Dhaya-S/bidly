@@ -26,8 +26,6 @@ class CommunityDetailScreen extends ConsumerStatefulWidget {
 
 class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   final List<Map<String, dynamic>> _communityPosts = [];
-  bool _isNotificationMuted = false;
-
   bool _isLoadingPosts = true;
 
   @override
@@ -226,15 +224,32 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
           borderRadius: BorderRadius.circular(10),
           child: Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE6F4F1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.groups_rounded, color: Color(0xFF004E54), size: 20),
-              ),
+              (community.iconUrl != null && community.iconUrl!.isNotEmpty)
+                  ? CircleAvatar(
+                      radius: 18,
+                      backgroundImage: CachedNetworkImageProvider(
+                        ApiClient.resolveMediaUrl(community.iconUrl!),
+                      ),
+                    )
+                  : Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEEF2FF),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          _getInitials(community.name),
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF4F46E5),
+                          ),
+                        ),
+                      ),
+                    ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -244,15 +259,15 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                       community.name,
                       style: const TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 14,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF1E232A),
+                        color: Color(0xFF0F172A),
                       ),
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      '${community.membersCount > 0 ? community.membersCount : 1} members',
+                      '${community.membersCount > 0 ? _formatCurrency(community.membersCount) : '1'} members',
                       style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 11.5,
@@ -267,84 +282,86 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
           ),
         ),
         actions: [
-          // Join Button / Joined Badge / Admin Badge
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 6.0),
-              child: isJoined
-                  ? Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE6F4F1),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Text(
-                        isAdmin ? 'Admin' : 'Joined',
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF004E54),
+          // If non-member, show + Join pill button matching Screen 3 UI
+          if (!isJoined)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6.0),
+                child: InkWell(
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
+                    if (mounted && ok) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Joined ${community.name}! You can now view details, make offers, and bid.'),
+                          backgroundColor: const Color(0xFF004E54),
                         ),
-                      ),
-                    )
-                  : InkWell(
-                      onTap: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
-                        if (mounted && ok) {
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text('Joined ${community.name}! Added to your Communities.'),
-                              backgroundColor: const Color(0xFF004E54),
-                            ),
-                          );
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF004E54),
-                          borderRadius: BorderRadius.circular(14),
+                      );
+                      ref.read(communityProvider.notifier).fetchMembers(community.id);
+                      _loadRealPosts();
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6.5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4F46E5), // Vibrant Indigo/Purple pill like UI image
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
                         ),
-                        child: const Text(
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_rounded, size: 16, color: Colors.white),
+                        SizedBox(width: 3),
+                        Text(
                           'Join',
                           style: TextStyle(
                             fontFamily: 'Poppins',
-                            fontSize: 12,
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
                           ),
                         ),
-                      ),
+                      ],
                     ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.people_outline_rounded, color: Color(0xFF1E232A), size: 22),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ManageCommunityScreen(community: community),
+                  ),
                 ),
-              );
-            },
-          ),
-          IconButton(
-            icon: Icon(
-              _isNotificationMuted ? Icons.notifications_off_outlined : Icons.notifications_none_rounded,
-              color: const Color(0xFF1E232A),
-              size: 22,
-            ),
-            onPressed: () {
-              setState(() => _isNotificationMuted = !_isNotificationMuted);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(_isNotificationMuted ? 'Daily notifications muted' : 'Daily notifications enabled for ${community.name}'),
-                  duration: const Duration(seconds: 1),
+              ),
+            )
+          else
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE6F4F1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    isAdmin ? 'Admin' : 'Joined',
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF004E54),
+                    ),
+                  ),
                 ),
-              );
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.search_rounded, color: Color(0xFF1E232A), size: 22),
+            onPressed: () {
+              // Search or filter community posts
             },
           ),
           PopupMenuButton<String>(
@@ -618,6 +635,205 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
   }
 
+  String _formatCurrency(dynamic amount) {
+    if (amount == null) return '0';
+    num val = 0;
+    if (amount is num) {
+      val = amount;
+    } else {
+      val = num.tryParse(amount.toString().replaceAll(RegExp(r'[^\d.]'), '')) ?? 0;
+    }
+    final str = val.toInt().toString();
+    final len = str.length;
+    if (len <= 3) return str;
+    final last3 = str.substring(len - 3);
+    String remaining = str.substring(0, len - 3);
+    final buffer = StringBuffer();
+    while (remaining.length > 2) {
+      buffer.write(',${remaining.substring(remaining.length - 2)}');
+      remaining = remaining.substring(0, remaining.length - 2);
+    }
+    return '$remaining$buffer,$last3';
+  }
+
+  String _formatTimeRemaining(String? auctionEndTime) {
+    if (auctionEndTime == null || auctionEndTime.isEmpty) return '2h 14m';
+    try {
+      final end = DateTime.parse(auctionEndTime);
+      final diff = end.difference(DateTime.now().toUtc());
+      if (diff.isNegative) return 'Ended';
+      if (diff.inDays > 0) {
+        return '${diff.inDays}d ${diff.inHours % 24}h';
+      }
+      if (diff.inHours > 0) {
+        return '${diff.inHours}h ${diff.inMinutes % 60}m';
+      }
+      if (diff.inMinutes > 0) {
+        return '${diff.inMinutes}m';
+      }
+      return '${diff.inSeconds}s';
+    } catch (_) {
+      return '2h 14m';
+    }
+  }
+
+  String _getInitials(String name) {
+    if (name.trim().isEmpty) return 'U';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length == 1) {
+      return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
+    }
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+
+  Widget _buildAuctionInfoCard(Map<String, dynamic> post) {
+    final currentBidVal = post['currentBid'] ?? post['startingBid'] ?? post['price'];
+    final currentBidFormatted = _formatCurrency(currentBidVal);
+    final bidsCount = post['bidsCount'] as int? ?? 0;
+    final timeRemaining = _formatTimeRemaining(post['auctionEndTime'] as String?);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Current bid',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '₹$currentBidFormatted',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '$bidsCount bids placed',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF334155)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.timer_outlined, size: 14, color: Color(0xFFF59E0B)),
+                const SizedBox(width: 5),
+                Text(
+                  '$timeRemaining remaining',
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDirectBuyInfoCard(Map<String, dynamic> post) {
+    final priceVal = post['price'] ?? post['priceText'];
+    final priceFormatted = _formatCurrency(priceVal);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDCFCE7)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Direct Buy Price',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF15803D),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '₹$priceFormatted',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF166534),
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFFDCFCE7),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.bolt_rounded, size: 14, color: Color(0xFF15803D)),
+                SizedBox(width: 4),
+                Text(
+                  'Direct Buy',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF15803D),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPostCard(Map<String, dynamic> post, {required bool isJoined, required CommunityModel community}) {
     final isAuction = post['sellingMethod'] == 'AUCTION';
     final isLiked = post['isLiked'] as bool? ?? false;
@@ -626,16 +842,18 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     final title = post['title'] as String? ?? '';
     final priceText = post['priceText'] as String? ?? '';
     final description = post['description'] as String? ?? '';
+    final distanceKm = (post['distanceKm'] as num?)?.toDouble() ?? 2.0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -644,68 +862,104 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Author Header
+          // 1. Author Row matching Screen 3
           Padding(
-            padding: const EdgeInsets.all(14.0),
+            padding: const EdgeInsets.only(bottom: 12.0),
             child: Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE6F4F1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.person_rounded, color: Color(0xFF004E54), size: 20),
-                  ),
-                ),
+                (post['authorAvatarUrl'] != null && (post['authorAvatarUrl'] as String).isNotEmpty)
+                    ? CircleAvatar(
+                        radius: 21,
+                        backgroundImage: CachedNetworkImageProvider(
+                          ApiClient.resolveMediaUrl(post['authorAvatarUrl'] as String),
+                        ),
+                      )
+                    : Container(
+                        width: 42,
+                        height: 42,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEEF2FF),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            _getInitials(post['authorName'] as String? ?? 'Member'),
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF4F46E5),
+                            ),
+                          ),
+                        ),
+                      ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        post['authorName'] as String,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1E232A),
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              post['authorName'] as String? ?? 'Member',
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F172A),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          const Icon(Icons.chevron_right_rounded, size: 16, color: Color(0xFF94A3B8)),
+                        ],
                       ),
-                      Text(
-                        post['timeAgo'] as String,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 11.5,
-                          color: Color(0xFF64748B),
-                        ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(Icons.verified_user_rounded, size: 13, color: Color(0xFF059669)),
+                          const SizedBox(width: 3),
+                          const Text(
+                            'Trusted',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF059669),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text('·', style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 6),
+                          Text(
+                            post['timeAgo'] as String? ?? 'Recently',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11.5,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
-                  decoration: BoxDecoration(
-                    color: isAuction ? const Color(0xFFFEF2F2) : const Color(0xFFE6F4F1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    isAuction ? 'AUCTION' : 'DIRECT',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      color: isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
-                    ),
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.more_horiz_rounded, color: Color(0xFF64748B), size: 22),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    Share.share('${post['title']} on Bidly Community');
+                  },
                 ),
               ],
             ),
           ),
 
-          // 2. Product Image Preview (tap to open Reels)
+          // 2. Product Media with Overlaid Badges (DIRECT BUY / BIDDING + 📍 2.0 km)
           GestureDetector(
             onTap: () {
               final currentIndex = _communityPosts.indexOf(post);
@@ -720,18 +974,18 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
               );
             },
             child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
               child: Stack(
-                alignment: Alignment.center,
                 children: [
                   (post['imageUrl'] != null && (post['imageUrl'] as String).isNotEmpty)
                       ? CachedNetworkImage(
                           imageUrl: ApiClient.resolveMediaUrl(post['imageUrl'] as String),
-                          height: 200,
+                          height: 210,
                           width: double.infinity,
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(
-                            height: 200,
-                            color: const Color(0xFFE2F3F0),
+                            height: 210,
+                            color: const Color(0xFFF1F5F9),
                             child: const Center(
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.5,
@@ -740,202 +994,283 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                             ),
                           ),
                           errorWidget: (context, url, error) => Container(
-                            height: 200,
-                            color: const Color(0xFFE2F3F0),
+                            height: 210,
+                            color: const Color(0xFFF1F5F9),
                             child: const Center(
-                              child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF004E54), size: 36),
+                              child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF94A3B8), size: 36),
                             ),
                           ),
                         )
                       : Container(
-                          height: 200,
+                          height: 210,
                           width: double.infinity,
-                          color: const Color(0xFFE2F3F0),
+                          color: const Color(0xFFF1F5F9),
                           child: const Center(
-                            child: Icon(Icons.image_outlined, color: Color(0xFF004E54), size: 40),
+                            child: Icon(Icons.image_outlined, color: Color(0xFF94A3B8), size: 40),
                           ),
                         ),
-                  // Play icon overlay (to indicate tapping opens reels)
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      shape: BoxShape.circle,
+
+                  // Top-Left Badge: DIRECT BUY (Teal) or BIDDING (Red)
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isAuction) ...[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 5),
+                          ],
+                          Text(
+                            isAuction ? 'BIDDING' : 'DIRECT BUY',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+                  ),
+
+                  // Bottom-Left Badge: 📍 2.0 km
+                  Positioned(
+                    bottom: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.location_on_rounded, size: 12, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${distanceKm.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
 
-          // 3. Product Info
+          // 3. Product Info: Title & Description
+          const SizedBox(height: 14),
+          if (title.isNotEmpty)
+            Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          if (description.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              description,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12.5,
+                color: Color(0xFF64748B),
+                height: 1.45,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+
+          // 4. Dark Auction Card or Direct Buy Card
+          if (isAuction)
+            _buildAuctionInfoCard(post)
+          else
+            _buildDirectBuyInfoCard(post),
+
+          // 5. Action Buttons (CRITICAL: Gated ONLY for Joined Members)
+          if (isJoined)
+            Padding(
+              padding: const EdgeInsets.only(top: 14.0),
+              child: Row(
+                children: [
+                  // View Details (Outlined Button)
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: OutlinedButton(
+                        onPressed: () {
+                          final listingId = post['listingId'] as String?;
+                          if (listingId != null && listingId.isNotEmpty) {
+                            context.push('/listing/$listingId');
+                          } else {
+                            _showContactSheet(post['authorName'] as String, title);
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          backgroundColor: Colors.white,
+                          elevation: 0,
+                        ),
+                        child: const Text(
+                          'View Details',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+
+                  // Make offer / Bid Now (Filled Primary Button)
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final listingId = post['listingId'] as String?;
+                          if (listingId != null && listingId.isNotEmpty) {
+                            context.push('/listing/$listingId');
+                          } else {
+                            _showContactSheet(post['authorName'] as String, title);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004E54),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          isAuction ? 'Bid Now' : 'Make offer',
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // 6. Real-time Likes & Shares Footer
           Padding(
-            padding: const EdgeInsets.all(14.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.only(top: 14.0),
+            child: Row(
               children: [
-                if (title.isNotEmpty)
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1E232A),
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                if (priceText.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    priceText,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
-                    ),
-                  ),
-                ],
-                if (description.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12.5,
-                      color: Color(0xFF64748B),
-                      height: 1.4,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-                const SizedBox(height: 14),
-
-                // 4. Action Row (Likes, Share, Contact)
-                Row(
-                  children: [
-                    // Left side: Like + Share (takes remaining space)
-                    Expanded(
-                      child: Row(
-                        children: [
-                          // Like Button — wired to backend
-                          GestureDetector(
-                            onTap: () async {
-                              // Optimistic update
-                              setState(() {
-                                post['isLiked'] = !isLiked;
-                                post['likesCount'] = isLiked ? (likesCount - 1) : (likesCount + 1);
-                              });
-                              // Call backend
-                              final result = await ref.read(communityProvider.notifier).likePost(post['id'] as String);
-                              if (result == null && mounted) {
-                                // Revert on failure
-                                setState(() {
-                                  post['isLiked'] = isLiked;
-                                  post['likesCount'] = likesCount;
-                                });
-                              }
-                            },
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                                  color: isLiked ? const Color(0xFFEF4444) : const Color(0xFF64748B),
-                                  size: 19,
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  likesCount.toString(),
-                                  style: const TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-
-                          // Share Button — wired to backend
-                          GestureDetector(
-                            onTap: () async {
-                              // Increment share count on backend
-                              final newCount = await ref.read(communityProvider.notifier).sharePost(post['id'] as String);
-                              if (newCount != null && mounted) {
-                                setState(() {
-                                  post['sharesCount'] = newCount;
-                                });
-                              }
-                              // Open system share sheet
-                              final shareText = priceText.isNotEmpty
-                                  ? '$title — $priceText on Bidly Community'
-                                  : '$title on Bidly Community';
-                              Share.share(shareText);
-                            },
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.share_outlined, color: Color(0xFF64748B), size: 19),
-                                const SizedBox(width: 5),
-                                Text(
-                                  sharesCount > 0 ? sharesCount.toString() : 'Share',
-                                  style: const TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                // Like Button
+                GestureDetector(
+                  onTap: () async {
+                    setState(() {
+                      post['isLiked'] = !isLiked;
+                      post['likesCount'] = isLiked ? (likesCount - 1) : (likesCount + 1);
+                    });
+                    final result = await ref.read(communityProvider.notifier).likePost(post['id'] as String);
+                    if (result == null && mounted) {
+                      setState(() {
+                        post['isLiked'] = isLiked;
+                        post['likesCount'] = likesCount;
+                      });
+                    }
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                        color: isLiked ? const Color(0xFFEF4444) : const Color(0xFF64748B),
+                        size: 20,
                       ),
-                    ),
-
-                    // Right side: Contact Button
-                    InkWell(
-                      onTap: () {
-                        if (isJoined) {
-                          _showContactSheet(post['authorName'] as String, title);
-                        } else {
-                          _showJoinToInteractModal(community);
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF004E54),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.chat_bubble_outline_rounded, size: 14, color: Colors.white),
-                            SizedBox(width: 6),
-                            Text(
-                              'Contact',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(width: 5),
+                      Text(
+                        likesCount.toString(),
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 22),
+
+                // Share Button
+                GestureDetector(
+                  onTap: () async {
+                    final newCount = await ref.read(communityProvider.notifier).sharePost(post['id'] as String);
+                    if (newCount != null && mounted) {
+                      setState(() {
+                        post['sharesCount'] = newCount;
+                      });
+                    }
+                    final shareText = priceText.isNotEmpty
+                        ? '$title — $priceText on Bidly Community'
+                        : '$title on Bidly Community';
+                    Share.share(shareText);
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.share_outlined, color: Color(0xFF64748B), size: 19),
+                      const SizedBox(width: 5),
+                      Text(
+                        sharesCount > 0 ? sharesCount.toString() : 'Share',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

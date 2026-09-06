@@ -81,6 +81,31 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
     state = state.copyWith(activeTab: index);
   }
 
+  /// Realtime instant insertion of a newly listed reel at index 0.
+  void insertNewReel(ListingModel newListing) {
+    if (newListing.reelUrl == null || newListing.reelUrl!.trim().isEmpty) return;
+
+    final existingListings = state.reelListings.where((r) => r.id != newListing.id).toList();
+    final updatedList = [newListing, ...existingListings];
+
+    _cachedReels = updatedList;
+
+    final updatedLikedIds = Map<String, bool>.from(state.likedIds);
+    final updatedCounts = Map<String, int>.from(state.likesCounts);
+    updatedLikedIds[newListing.id] = newListing.isLikedByMe;
+    updatedCounts[newListing.id] = newListing.likesCount;
+    _cachedLikedIds = updatedLikedIds;
+    _cachedLikesCounts = updatedCounts;
+
+    state = state.copyWith(
+      reelListings: updatedList,
+      likedIds: updatedLikedIds,
+      likesCounts: updatedCounts,
+      isLoading: false,
+    );
+    debugPrint('[REELS_REALTIME] Inserted newly created reel: ${newListing.title} (${newListing.id}) at index 0');
+  }
+
   /// Toggle or ensure like state. Optimistic update with in-flight deduplication and authoritative server confirmation.
   Future<void> toggleLike(
     String listingId,
@@ -189,14 +214,19 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
           }
         }
 
-        _cachedReels = videoReels;
+        final backendIds = videoReels.map((r) => r.id).toSet();
+        // Preserve any newly inserted local reels that may not yet be in page 0 response
+        final localPending = state.reelListings.where((r) => !backendIds.contains(r.id)).toList();
+        final finalReels = [...localPending, ...videoReels];
+
+        _cachedReels = finalReels;
         _cachedLikedIds = updatedLikedIds;
         _cachedLikesCounts = updatedCounts;
 
         final hasMore = videoReels.length >= _pageSize;
         state = state.copyWith(
           isLoading: false,
-          reelListings: videoReels,
+          reelListings: finalReels,
           currentPage: 0,
           hasMore: hasMore,
           likedIds: updatedLikedIds,

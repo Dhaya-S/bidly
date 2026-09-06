@@ -23,7 +23,6 @@ class CommunityPreviewScreen extends ConsumerStatefulWidget {
 class _CommunityPreviewScreenState extends ConsumerState<CommunityPreviewScreen> {
   List<Map<String, dynamic>> _recentListings = [];
   bool _isLoadingListings = true;
-  bool _isJoining = false;
 
   @override
   void initState() {
@@ -50,7 +49,7 @@ class _CommunityPreviewScreenState extends ConsumerState<CommunityPreviewScreen>
     }
   }
 
-  Future<void> _handleOpenOrJoin() async {
+  void _handleOpenOrJoin() {
     final commState = ref.read(communityProvider);
     CommunityModel target = widget.community;
     try {
@@ -59,12 +58,6 @@ class _CommunityPreviewScreenState extends ConsumerState<CommunityPreviewScreen>
       );
       target = backendMatch;
     } catch (_) {}
-
-    if (!target.isJoined && !target.isAdmin) {
-      setState(() => _isJoining = true);
-      await ref.read(communityProvider.notifier).joinCommunity(target.id);
-      if (mounted) setState(() => _isJoining = false);
-    }
 
     if (mounted) {
       Navigator.of(context).pushReplacement(
@@ -359,7 +352,7 @@ class _CommunityPreviewScreenState extends ConsumerState<CommunityPreviewScreen>
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _isJoining ? null : _handleOpenOrJoin,
+                  onPressed: _handleOpenOrJoin,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF004E54),
                     foregroundColor: Colors.white,
@@ -368,20 +361,14 @@ class _CommunityPreviewScreenState extends ConsumerState<CommunityPreviewScreen>
                     ),
                     elevation: 0,
                   ),
-                  child: _isJoining
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                        )
-                      : Text(
-                          (comm.isJoined || comm.isAdmin) ? 'Open Community' : 'Join & Open Community',
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                  child: const Text(
+                    'Open Community',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
             ),

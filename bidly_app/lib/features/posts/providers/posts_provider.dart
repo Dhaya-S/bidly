@@ -70,6 +70,23 @@ class PostsNotifier extends StateNotifier<PostsState> {
     state = state.copyWith(activeTab: index);
   }
 
+  /// Realtime instant insertion of a newly created post at index 0.
+  void insertNewPost(PostModel newPost) {
+    final filtered = state.posts.where((p) => p.id != newPost.id).toList();
+    final updated = [newPost, ...filtered];
+
+    final newLiked = Map<String, bool>.from(state.likedPostIds)..[newPost.id] = newPost.isLikedByMe;
+    final newCounts = Map<String, int>.from(state.postLikesCounts)..[newPost.id] = newPost.likesCount;
+
+    state = state.copyWith(
+      posts: updated,
+      likedPostIds: newLiked,
+      postLikesCounts: newCounts,
+      isLoading: false,
+    );
+    debugPrint('[POSTS_REALTIME] Inserted newly created post: ${newPost.id} at index 0');
+  }
+
   Future<void> fetchFeed({bool isRefresh = false}) async {
     if (state.isLoading && !isRefresh) return;
     if (!isRefresh && state.posts.isNotEmpty) return;
@@ -100,9 +117,14 @@ class PostsNotifier extends StateNotifier<PostsState> {
           }
         }
 
+        final backendIds = fetchedPosts.map((p) => p.id).toSet();
+        // Preserve any newly inserted local posts not yet returned by backend
+        final localPending = state.posts.where((p) => !backendIds.contains(p.id)).toList();
+        final finalPosts = [...localPending, ...fetchedPosts];
+
         state = state.copyWith(
           isLoading: false,
-          posts: fetchedPosts,
+          posts: finalPosts,
           currentPage: 0,
           hasMore: fetchedPosts.length >= _pageSize,
           likedPostIds: newLiked,

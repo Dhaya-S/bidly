@@ -208,6 +208,7 @@ class _CourierDetailsBottomSheetState extends ConsumerState<CourierDetailsBottom
               TextFormField(
                 controller: _trackingController,
                 textCapitalization: TextCapitalization.characters,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w600),
                 decoration: InputDecoration(
                   hintText: 'Enter courier tracking number',
                   prefixIcon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF004E54), size: 20),
@@ -339,6 +340,8 @@ class _CourierDetailsBottomSheetState extends ConsumerState<CourierDetailsBottom
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF004E54),
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFF004E54),
+                    disabledForegroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

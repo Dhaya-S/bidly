@@ -211,4 +211,42 @@ public class LikeSystemTest {
         assertEquals(2, resB.get("likesCount"));
         assertEquals(2, mockPost.getLikesCount());
     }
+
+    // ─── 10. POST TOGGLE WITHOUT ACTION PARAM (LIKE -> UNLIKE) ───
+    @Test
+    void testPostToggleLike_WithoutAction_TogglesLikeAndUnlike() {
+        when(postRepository.findById(postId)).thenReturn(Optional.of(mockPost));
+        // First tap: not yet liked -> likes it
+        when(postLikeRepository.existsByUserIdAndPostId(userA, postId)).thenReturn(false);
+        Map<String, Object> res1 = postService.toggleLike(userA, postId, null);
+        assertEquals(true, res1.get("liked"));
+        assertEquals(1, res1.get("likesCount"));
+        verify(postLikeRepository, times(1)).save(any(PostLike.class));
+
+        // Second tap: already liked -> unlikes it
+        when(postLikeRepository.existsByUserIdAndPostId(userA, postId)).thenReturn(true);
+        Map<String, Object> res2 = postService.toggleLike(userA, postId, null);
+        assertEquals(false, res2.get("liked"));
+        assertEquals(0, res2.get("likesCount"));
+        verify(postLikeRepository, times(1)).deleteByUserIdAndPostId(userA, postId);
+    }
+
+    // ─── 11. REEL TOGGLE WITHOUT ACTION PARAM (LIKE -> UNLIKE) ───
+    @Test
+    void testReelToggleLike_WithoutAction_TogglesLikeAndUnlike() {
+        when(listingRepository.findById(listingId)).thenReturn(Optional.of(mockListing));
+        // First tap: not yet liked -> likes it
+        when(listingLikeRepository.existsByUserIdAndListingId(userA, listingId)).thenReturn(false);
+        Map<String, Object> res1 = listingService.toggleLikeListingWithAction(userA, listingId, null);
+        assertEquals(true, res1.get("liked"));
+        assertEquals(1, res1.get("likesCount"));
+        verify(listingLikeRepository, times(1)).save(any(ListingLike.class));
+
+        // Second tap: already liked -> unlikes it
+        when(listingLikeRepository.existsByUserIdAndListingId(userA, listingId)).thenReturn(true);
+        Map<String, Object> res2 = listingService.toggleLikeListingWithAction(userA, listingId, null);
+        assertEquals(false, res2.get("liked"));
+        assertEquals(0, res2.get("likesCount"));
+        verify(listingLikeRepository, times(1)).deleteByUserIdAndListingId(userA, listingId);
+    }
 }

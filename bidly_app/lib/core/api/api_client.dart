@@ -122,13 +122,40 @@ class ApiClient {
       return trimmed;
     }
 
-    // Rewrite Cloudflare r2.dev URLs to use the backend streaming endpoint (bypassing 401 R2 dev protection)
-    if (trimmed.contains('.r2.dev/')) {
-      final objectPath = trimmed.substring(trimmed.indexOf('.r2.dev/') + 8);
-      return '$_baseUrl/media/file/$objectPath';
+    // Rewrite Cloudflare r2.cloudflarestorage.com or r2.dev URLs to use the backend streaming endpoint
+    if (trimmed.contains('r2.cloudflarestorage.com') || trimmed.contains('.r2.dev')) {
+      try {
+        final uri = Uri.parse(trimmed);
+        var path = uri.path;
+        while (path.startsWith('/')) {
+          path = path.substring(1);
+        }
+        // If path begins with bucket name (e.g. bidly-media/...), strip it
+        if (path.startsWith('bidly-media/')) {
+          path = path.substring('bidly-media/'.length);
+        }
+        return '$_baseUrl/media/file/$path';
+      } catch (_) {
+        var cleanPath = trimmed;
+        if (cleanPath.contains('?')) {
+          cleanPath = cleanPath.substring(0, cleanPath.indexOf('?'));
+        }
+        if (cleanPath.contains('.r2.dev/')) {
+          cleanPath = cleanPath.substring(cleanPath.indexOf('.r2.dev/') + 8);
+        } else if (cleanPath.contains('r2.cloudflarestorage.com/')) {
+          cleanPath = cleanPath.substring(cleanPath.indexOf('r2.cloudflarestorage.com/') + 25);
+        }
+        while (cleanPath.startsWith('/')) {
+          cleanPath = cleanPath.substring(1);
+        }
+        if (cleanPath.startsWith('bidly-media/')) {
+          cleanPath = cleanPath.substring('bidly-media/'.length);
+        }
+        return '$_baseUrl/media/file/$cleanPath';
+      }
     }
 
-    // Direct HTTP/HTTPS URLs (including external CDNs)
+    // Direct HTTP/HTTPS URLs (including external CDNs that are not R2)
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return trimmed;
     }
@@ -140,8 +167,14 @@ class ApiClient {
           : _baseUrl;
       return '$baseWithoutApi$trimmed';
     }
+    if (trimmed.startsWith('/media/file/')) {
+      return '$_baseUrl$trimmed';
+    }
     if (trimmed.startsWith('/media/')) {
       return '$_baseUrl$trimmed';
+    }
+    if (trimmed.startsWith('media/file/')) {
+      return '$_baseUrl/$trimmed';
     }
     if (trimmed.startsWith('/')) {
       return '$_baseUrl/media/file$trimmed';

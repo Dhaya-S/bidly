@@ -641,6 +641,12 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               const SizedBox(height: 6),
               TextField(
                 controller: locationCtrl,
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13.5,
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w500,
+                ),
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.location_on_outlined, color: AppTheme.primary, size: 18),
                   hintText: 'e.g. Metro Station, Coffee Shop, Mall',
@@ -1217,6 +1223,11 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                           ),
                           child: TextField(
                             controller: _textController,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                              color: Color(0xFF0F172A),
+                            ),
                             onChanged: (text) {
                               setState(() {});
                               ref.read(chatRoomNotifierProvider.notifier).onTextChanged(text);
@@ -2051,6 +2062,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: nameCtrl,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Recipient Full Name',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2061,6 +2073,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               TextField(
                 controller: phoneCtrl,
                 keyboardType: TextInputType.phone,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Contact Phone Number',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2070,6 +2083,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
               const SizedBox(height: 10),
               TextField(
                 controller: addressCtrl,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Street / Flat / Locality',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2082,6 +2096,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: cityCtrl,
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'City',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2094,6 +2109,7 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                     child: TextField(
                       controller: pincodeCtrl,
                       keyboardType: TextInputType.number,
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'PIN Code',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -2872,6 +2888,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF004E54),
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFF004E54),
+                        disabledForegroundColor: Colors.white,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -3206,6 +3224,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF004E54),
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: const Color(0xFF004E54),
+                              disabledForegroundColor: Colors.white,
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -3386,6 +3406,8 @@ class _OfferChatScreenState extends ConsumerState<OfferChatScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF004E54),
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFF004E54),
+                        disabledForegroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         minimumSize: Size.zero,

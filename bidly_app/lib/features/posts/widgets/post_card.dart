@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/providers/live_location_provider.dart';
+import '../../../core/widgets/bidly_snackbar.dart';
 import '../../explore/models/listing_model.dart';
 import '../models/post_model.dart';
 import '../providers/posts_provider.dart';
@@ -23,9 +26,10 @@ class PostCard extends ConsumerStatefulWidget {
   ConsumerState<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderStateMixin {
-  int _currentMediaIndex = 0;
+class _PostCardState extends ConsumerState<PostCard>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late PageController _pageController;
+  int _currentMediaIndex = 0;
 
   // Video playback lifecycle management
   VideoPlayerController? _videoController;
@@ -38,9 +42,13 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
   late Animation<double> _heartScaleAnim;
   late Animation<double> _heartOpacityAnim;
 
+  late AnimationController _likeButtonAnimController;
+  late Animation<double> _likeButtonScaleAnim;
+
   @override
   void initState({Key? key}) {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pageController = PageController();
 
     _heartAnimController = AnimationController(
@@ -49,9 +57,18 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
     );
 
     _heartScaleAnim = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3).chain(CurveTween(curve: Curves.elasticOut)), weight: 60),
-      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 20),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeInBack)), weight: 20),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.0, end: 1.3)
+              .chain(CurveTween(curve: Curves.elasticOut)),
+          weight: 60),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.3, end: 1.0)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 20),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.0, end: 0.0)
+              .chain(CurveTween(curve: Curves.easeInBack)),
+          weight: 20),
     ]).animate(_heartAnimController);
 
     _heartOpacityAnim = TweenSequence<double>([
@@ -66,9 +83,38 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
       }
     });
 
+    _likeButtonAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: 1.0,
+    );
+
+    _likeButtonScaleAnim = TweenSequence<double>([
+      TweenSequenceItem(
+          tween: Tween(begin: 1.0, end: 1.35)
+              .chain(CurveTween(curve: Curves.easeOutCubic)),
+          weight: 40),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.35, end: 0.9)
+              .chain(CurveTween(curve: Curves.easeInCubic)),
+          weight: 30),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.9, end: 1.0)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 30),
+    ]).animate(_likeButtonAnimController);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndInitVideoForSlide(0);
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _videoController?.pause();
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -88,9 +134,11 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _disposeVideo();
     _pageController.dispose();
     _heartAnimController.dispose();
+    _likeButtonAnimController.dispose();
     super.dispose();
   }
 
@@ -105,7 +153,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
   }
 
   void _checkAndInitVideoForSlide(int index) {
-    if (widget.post.mediaItems.isEmpty || index >= widget.post.mediaItems.length) {
+    if (widget.post.mediaItems.isEmpty ||
+        index >= widget.post.mediaItems.length) {
       _disposeVideo();
       return;
     }
@@ -126,7 +175,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
 
     try {
       final resolvedUrl = ApiClient.resolveMediaUrl(url);
-      final controller = VideoPlayerController.networkUrl(Uri.parse(resolvedUrl));
+      final controller =
+          VideoPlayerController.networkUrl(Uri.parse(resolvedUrl));
       await controller.initialize();
       if (!mounted) {
         controller.dispose();
@@ -134,7 +184,12 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
       }
       controller.setLooping(true);
       controller.setVolume(_isMuted ? 0.0 : 1.0);
-      controller.play();
+      final isCurrentRoute = ModalRoute.of(context)?.isCurrent == true;
+      if (isCurrentRoute) {
+        controller.play();
+      } else {
+        controller.pause();
+      }
 
       setState(() {
         _videoController = controller;
@@ -172,30 +227,40 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
   }
 
   void _triggerDoubleTapHeart() {
-    final isCurrentlyLiked = ref.read(postsProvider).isLiked(widget.post.id, widget.post.isLikedByMe);
+    final isCurrentlyLiked = ref
+        .read(postsProvider)
+        .isLiked(widget.post.id, widget.post.isLikedByMe);
+    HapticFeedback.mediumImpact();
     if (!isCurrentlyLiked) {
       ref.read(postsProvider.notifier).toggleLike(
-        widget.post.id,
-        widget.post.likesCount,
-        targetLiked: true,
-        initialLiked: widget.post.isLikedByMe,
-      );
+            widget.post.id,
+            widget.post.likesCount,
+            targetLiked: true,
+            initialLiked: widget.post.isLikedByMe,
+          );
+      _likeButtonAnimController.forward(from: 0.0);
     }
     setState(() => _showHeartBurst = true);
     _heartAnimController.forward(from: 0.0);
   }
 
   void _handleSingleTapLike() {
-    final isCurrentlyLiked = ref.read(postsProvider).isLiked(widget.post.id, widget.post.isLikedByMe);
-    if (!isCurrentlyLiked) {
-      setState(() => _showHeartBurst = true);
-      _heartAnimController.forward(from: 0.0);
+    final isCurrentlyLiked = ref
+        .read(postsProvider)
+        .isLiked(widget.post.id, widget.post.isLikedByMe);
+    final nextState = !isCurrentlyLiked;
+    if (nextState) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.lightImpact();
     }
+    _likeButtonAnimController.forward(from: 0.0);
     ref.read(postsProvider.notifier).toggleLike(
-      widget.post.id,
-      widget.post.likesCount,
-      initialLiked: widget.post.isLikedByMe,
-    );
+          widget.post.id,
+          widget.post.likesCount,
+          targetLiked: nextState,
+          initialLiked: widget.post.isLikedByMe,
+        );
   }
 
   String _formatCurrency(dynamic amount) {
@@ -204,9 +269,11 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
     if (amount is num) {
       val = amount;
     } else {
-      val = num.tryParse(amount.toString().replaceAll(RegExp(r'[^\d.]'), '')) ?? 0;
+      val = num.tryParse(amount.toString().replaceAll(RegExp(r'[^\d.]'), '')) ??
+          0;
     }
-    final format = NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 0);
+    final format =
+        NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 0);
     return format.format(val).trim();
   }
 
@@ -231,7 +298,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
     final post = widget.post;
     // In Posts section, show photo posts only (reels show in Feed section only)
     final imageItems = post.mediaItems
-        .where((m) => m.type.toUpperCase() != 'VIDEO' && !m.url.contains('-thumb.jpg'))
+        .where((m) =>
+            m.type.toUpperCase() != 'VIDEO' && !m.url.contains('-thumb.jpg'))
         .toList();
     final mediaList = imageItems.isNotEmpty
         ? imageItems
@@ -257,10 +325,13 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                 CircleAvatar(
                   radius: 20,
                   backgroundColor: const Color(0xFF004E54),
-                  backgroundImage: (post.authorAvatarUrl != null && post.authorAvatarUrl!.isNotEmpty)
-                      ? CachedNetworkImageProvider(ApiClient.resolveMediaUrl(post.authorAvatarUrl!))
+                  backgroundImage: (post.authorAvatarUrl != null &&
+                          post.authorAvatarUrl!.isNotEmpty)
+                      ? CachedNetworkImageProvider(
+                          ApiClient.resolveMediaUrl(post.authorAvatarUrl!))
                       : null,
-                  child: (post.authorAvatarUrl == null || post.authorAvatarUrl!.isEmpty)
+                  child: (post.authorAvatarUrl == null ||
+                          post.authorAvatarUrl!.isEmpty)
                       ? Text(
                           post.initials,
                           style: const TextStyle(
@@ -305,7 +376,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
 
                           // Dark Teal Trusted Badge matching screenshot
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2.5),
                             decoration: BoxDecoration(
                               color: const Color(0xFF004E54),
                               borderRadius: BorderRadius.circular(10),
@@ -313,7 +385,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.shield_outlined, size: 11, color: Colors.white),
+                                Icon(Icons.shield_outlined,
+                                    size: 11, color: Colors.white),
                                 SizedBox(width: 3.5),
                                 Text(
                                   'Trusted',
@@ -355,16 +428,76 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                   ),
                 ),
 
-                // More Options Menu
-                IconButton(
-                  icon: const Icon(
-                    Icons.more_horiz_rounded,
-                    color: Color(0xFF94A3B8),
-                    size: 22,
+                // More Options Menu (Not Interested, Restrict)
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    dividerTheme: const DividerThemeData(
+                      color: Color(0xFFF1F5F9),
+                      thickness: 1,
+                      space: 1,
+                    ),
                   ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => _showMoreOptions(context),
+                  child: PopupMenuButton<String>(
+                    tooltip: 'More options',
+                    icon: const Icon(
+                      Icons.more_horiz_rounded,
+                      color: Color(0xFF94A3B8),
+                      size: 22,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 170, maxWidth: 200),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: const BorderSide(color: Color(0xFFF1F5F9), width: 1),
+                    ),
+                    color: Colors.white,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 8,
+                    shadowColor: Colors.black.withValues(alpha: 0.12),
+                    offset: const Offset(0, 36),
+                    onOpened: () {
+                      _videoController?.pause();
+                      if (mounted) setState(() {});
+                    },
+                    itemBuilder: (ctx) => const [
+                      PopupMenuItem<String>(
+                        value: 'not_interested',
+                        height: 48,
+                        padding: EdgeInsets.symmetric(horizontal: 18),
+                        child: Text(
+                          'Not Interested',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                      PopupMenuDivider(height: 1),
+                      PopupMenuItem<String>(
+                        value: 'restrict',
+                        height: 48,
+                        padding: EdgeInsets.symmetric(horizontal: 18),
+                        child: Text(
+                          'Restrict',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                      ),
+                    ],
+                    onSelected: (value) {
+                      if (value == 'not_interested') {
+                        _handleNotInterested(context);
+                      } else if (value == 'restrict') {
+                        _showRestrictConfirmation(context, post);
+                      }
+                    },
+                  ),
                 ),
               ],
             ),
@@ -384,6 +517,9 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                     children: [
                       PageView.builder(
                         controller: _pageController,
+                        physics: mediaList.length <= 1
+                            ? const NeverScrollableScrollPhysics()
+                            : const ClampingScrollPhysics(),
                         itemCount: mediaList.length,
                         onPageChanged: (idx) {
                           setState(() => _currentMediaIndex = idx);
@@ -432,9 +568,12 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                         top: 12,
                         left: 12,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: post.isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
+                            color: post.isAuction
+                                ? const Color(0xFFEF4444)
+                                : const Color(0xFF004E54),
                             borderRadius: BorderRadius.circular(6),
                             boxShadow: [
                               BoxShadow(
@@ -457,12 +596,13 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                         ),
                       ),
 
-                      // Bottom-Left Badge: 📍 2.0 km (White Pill)
+                      // Bottom-Left Badge: 📍 Location · Distance (White Pill)
                       Positioned(
                         bottom: 12,
                         left: 12,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
@@ -484,7 +624,12 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                '${post.distanceKm.toStringAsFixed(1)} km',
+                                widget.post.formatLocationBadge(
+                                  userLat:
+                                      ref.watch(liveLocationProvider).latitude,
+                                  userLng:
+                                      ref.watch(liveLocationProvider).longitude,
+                                ),
                                 style: const TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 11,
@@ -503,7 +648,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                           bottom: 12,
                           right: 12,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.65),
                               borderRadius: BorderRadius.circular(12),
@@ -547,10 +693,13 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
 
                 // Description
                 if (post.displayDescription.isNotEmpty ||
-                    (post.content.isNotEmpty && post.content.trim() != post.displayTitle.trim())) ...[
+                    (post.content.isNotEmpty &&
+                        post.content.trim() != post.displayTitle.trim())) ...[
                   const SizedBox(height: 4),
                   Text(
-                    post.displayDescription.isNotEmpty ? post.displayDescription : post.content,
+                    post.displayDescription.isNotEmpty
+                        ? post.displayDescription
+                        : post.content,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 12.5,
@@ -564,8 +713,7 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                 ],
 
                 // 4. Dark Auction Card (Shown only for AUCTION posts)
-                if (post.isAuction)
-                  _buildAuctionInfoCard(post),
+                if (post.isAuction) _buildAuctionInfoCard(post),
 
                 // 5. Action Buttons (View Details + Make offer / Bid Now)
                 Padding(
@@ -577,15 +725,20 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                         child: SizedBox(
                           height: 46,
                           child: OutlinedButton(
-                            onPressed: () {
-                              if (post.listingId != null && post.listingId!.isNotEmpty) {
-                                context.push('/listing/${post.listingId}');
+                            onPressed: () async {
+                              _videoController?.pause();
+                              if (mounted) setState(() {});
+                              if (post.listingId != null &&
+                                  post.listingId!.isNotEmpty) {
+                                await context
+                                    .push('/listing/${post.listingId}');
                               } else {
                                 _showDetailsBottomSheet(context, post);
                               }
                             },
                             style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+                              side: const BorderSide(
+                                  color: Color(0xFFCBD5E1), width: 1.2),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -611,15 +764,21 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                         child: SizedBox(
                           height: 46,
                           child: ElevatedButton(
-                            onPressed: () {
-                              if (post.listingId != null && post.listingId!.isNotEmpty) {
-                                context.push('/listing/${post.listingId}');
+                            onPressed: () async {
+                              _videoController?.pause();
+                              if (mounted) setState(() {});
+                              if (post.listingId != null &&
+                                  post.listingId!.isNotEmpty) {
+                                await context
+                                    .push('/listing/${post.listingId}');
                               } else {
                                 _showDetailsBottomSheet(context, post);
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: post.isAuction ? const Color(0xFFEF4444) : const Color(0xFF004E54),
+                              backgroundColor: post.isAuction
+                                  ? const Color(0xFFEF4444)
+                                  : const Color(0xFF004E54),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -649,8 +808,10 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                       // Like Button & Count (Targeted Reactive Subscription)
                       Consumer(
                         builder: (context, ref, _) {
-                          final isLiked = ref.watch(postsProvider.select((s) => s.isLiked(post.id, post.isLikedByMe)));
-                          final count = ref.watch(postsProvider.select((s) => s.likesCount(post.id, post.likesCount)));
+                          final isLiked = ref.watch(postsProvider.select(
+                              (s) => s.isLiked(post.id, post.isLikedByMe)));
+                          final count = ref.watch(postsProvider.select(
+                              (s) => s.likesCount(post.id, post.likesCount)));
 
                           return GestureDetector(
                             behavior: HitTestBehavior.opaque,
@@ -658,13 +819,15 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                AnimatedScale(
-                                  scale: isLiked ? 1.15 : 1.0,
-                                  duration: const Duration(milliseconds: 200),
-                                  curve: Curves.elasticOut,
+                                ScaleTransition(
+                                  scale: _likeButtonScaleAnim,
                                   child: Icon(
-                                    isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                                    color: isLiked ? const Color(0xFFEF4444) : const Color(0xFF64748B),
+                                    isLiked
+                                        ? Icons.favorite_rounded
+                                        : Icons.favorite_border_rounded,
+                                    color: isLiked
+                                        ? const Color(0xFFEF4444)
+                                        : const Color(0xFF64748B),
                                     size: 22,
                                   ),
                                 ),
@@ -689,8 +852,11 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () {
+                          _videoController?.pause();
+                          if (mounted) setState(() {});
                           ref.read(postsProvider.notifier).sharePost(post.id);
-                          Share.share('${post.displayTitle}\n\nShared via Bidly Marketplace');
+                          Share.share(
+                              '${post.displayTitle}\n\nShared via Bidly Marketplace');
                         },
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -731,7 +897,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
   }
 
   Widget _buildAuctionInfoCard(PostModel post) {
-    final currentBidVal = post.currentBid ?? post.startingBid ?? post.price ?? 0;
+    final currentBidVal =
+        post.currentBid ?? post.startingBid ?? post.price ?? 0;
     final currentBidFormatted = _formatCurrency(currentBidVal);
     final bidsCount = post.bidsCount;
     final timeRemaining = _formatTimeRemaining(post.auctionEndTime);
@@ -785,7 +952,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEF4444),
                   borderRadius: BorderRadius.circular(16),
@@ -793,7 +961,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.timer_outlined, size: 13, color: Colors.white),
+                    const Icon(Icons.timer_outlined,
+                        size: 13, color: Colors.white),
                     const SizedBox(width: 4),
                     Text(
                       timeRemaining,
@@ -826,7 +995,9 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
 
   Widget _buildMediaSlide(MediaItemModel item, int index) {
     if (item.type == 'VIDEO') {
-      if (index == _currentMediaIndex && _videoController != null && _isVideoInitialized) {
+      if (index == _currentMediaIndex &&
+          _videoController != null &&
+          _isVideoInitialized) {
         return Stack(
           alignment: Alignment.center,
           children: [
@@ -835,8 +1006,12 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                 fit: BoxFit.cover,
                 clipBehavior: Clip.hardEdge,
                 child: SizedBox(
-                  width: _videoController!.value.size.width > 0 ? _videoController!.value.size.width : 360,
-                  height: _videoController!.value.size.height > 0 ? _videoController!.value.size.height : 640,
+                  width: _videoController!.value.size.width > 0
+                      ? _videoController!.value.size.width
+                      : 360,
+                  height: _videoController!.value.size.height > 0
+                      ? _videoController!.value.size.height
+                      : 640,
                   child: VideoPlayer(_videoController!),
                 ),
               ),
@@ -854,7 +1029,8 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                           color: Colors.black.withValues(alpha: 0.6),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 40),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Colors.white, size: 40),
                       )
                     : const SizedBox.shrink(),
               ),
@@ -872,7 +1048,9 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    _isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    _isMuted
+                        ? Icons.volume_off_rounded
+                        : Icons.volume_up_rounded,
                     color: Colors.white,
                     size: 18,
                   ),
@@ -891,13 +1069,15 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                     height: 32,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2DD4BF)),
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Color(0xFF2DD4BF)),
                     ),
                   )
                 : const Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.play_circle_outline_rounded, color: Colors.white70, size: 52),
+                      Icon(Icons.play_circle_outline_rounded,
+                          color: Colors.white70, size: 52),
                       SizedBox(height: 6),
                       Text(
                         'Video Reel',
@@ -935,13 +1115,16 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
       errorWidget: (context, url, error) => Container(
         color: AppTheme.surfaceVariant,
         child: const Center(
-          child: Icon(Icons.broken_image_rounded, color: AppTheme.textHint, size: 36),
+          child: Icon(Icons.broken_image_rounded,
+              color: AppTheme.textHint, size: 36),
         ),
       ),
     );
   }
 
   void _showDetailsBottomSheet(BuildContext context, PostModel post) {
+    _videoController?.pause();
+    if (mounted) setState(() {});
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -998,7 +1181,10 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
                   ),
                   child: const Text(
                     'Close',
-                    style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: Colors.white),
+                    style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white),
                   ),
                 ),
               ),
@@ -1009,45 +1195,102 @@ class _PostCardState extends ConsumerState<PostCard> with SingleTickerProviderSt
     );
   }
 
-  void _showMoreOptions(BuildContext context) {
-    showModalBottomSheet(
+  void _handleNotInterested(BuildContext context) {
+    final post = widget.post;
+    final posts = ref.read(postsProvider).posts;
+    final originalIndex = posts.indexWhere((p) => p.id == post.id);
+
+    HapticFeedback.mediumImpact();
+    ref.read(postsProvider.notifier).hidePost(post.id);
+
+    BidlySnackBar.showUndo(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 8, bottom: 4),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+      message: 'Post hidden from your feed',
+      icon: Icons.visibility_off_outlined,
+      onUndo: () {
+        ref.read(postsProvider.notifier).unhidePost(
+          post.id,
+          restorePost: post,
+          index: originalIndex >= 0 ? originalIndex : null,
+        );
+      },
+    );
+  }
+
+  void _showRestrictConfirmation(BuildContext context, PostModel post) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Restrict ${post.authorName}?',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 16.5,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        content: Text(
+          'You won\'t see posts from ${post.authorName} in your feed anymore.',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 13,
+            color: Color(0xFF64748B),
+            height: 1.45,
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.share_outlined, color: AppTheme.textPrimary),
-              title: const Text('Share post', style: TextStyle(fontFamily: 'Poppins', fontSize: 14)),
-              onTap: () {
-                Navigator.pop(ctx);
-                Share.share('${widget.post.displayTitle}\n\nShared via Bidly');
-              },
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              HapticFeedback.heavyImpact();
+              final authorId = post.authorId ?? '';
+              final authorName = post.authorName;
+              if (authorId.isNotEmpty) {
+                ref.read(postsProvider.notifier).restrictUser(authorId, authorName);
+              }
+              BidlySnackBar.showUndo(
+                context: context,
+                message: 'Restricted $authorName. Posts hidden from feed.',
+                icon: Icons.block_rounded,
+                onUndo: () {
+                  if (authorId.isNotEmpty) {
+                    ref.read(postsProvider.notifier).unrestrictUser(authorId);
+                  }
+                },
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),
-            ListTile(
-              leading: const Icon(Icons.flag_outlined, color: AppTheme.error),
-              title: const Text('Report post', style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.error)),
-              onTap: () {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Post reported. Thank you for keeping Bidly safe.')),
-                );
-              },
+            child: const Text(
+              'Restrict',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

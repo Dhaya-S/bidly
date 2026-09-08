@@ -17,6 +17,8 @@ public class PostDto {
     private String content;
     private String mediaUrl;
     private String mediaType;
+    private String videoUrl;
+    private String reelUrl;
     private String tag; // SELLING, ANNOUNCEMENT, REVIEW, GENERAL
     private int likesCount;
     private int sharesCount;
@@ -43,6 +45,10 @@ public class PostDto {
     private String listingTitle;
     private String listingDescription;
     private Double distanceKm;
+    private Double latitude;
+    private Double longitude;
+    private String locality;
+    private String city;
 
     public PostDto() {}
 
@@ -72,6 +78,12 @@ public class PostDto {
 
     public String getMediaType() { return mediaType; }
     public void setMediaType(String mediaType) { this.mediaType = mediaType; }
+
+    public String getVideoUrl() { return videoUrl; }
+    public void setVideoUrl(String videoUrl) { this.videoUrl = videoUrl; }
+
+    public String getReelUrl() { return reelUrl; }
+    public void setReelUrl(String reelUrl) { this.reelUrl = reelUrl; }
 
     public String getTag() { return tag; }
     public void setTag(String tag) { this.tag = tag; }
@@ -120,4 +132,16 @@ public class PostDto {
 
     public Double getDistanceKm() { return distanceKm; }
     public void setDistanceKm(Double distanceKm) { this.distanceKm = distanceKm; }
+
+    public Double getLatitude() { return latitude; }
+    public void setLatitude(Double latitude) { this.latitude = latitude; }
+
+    public Double getLongitude() { return longitude; }
+    public void setLongitude(Double longitude) { this.longitude = longitude; }
+
+    public String getLocality() { return locality; }
+    public void setLocality(String locality) { this.locality = locality; }
+
+    public String getCity() { return city; }
+    public void setCity(String city) { this.city = city; }
 }

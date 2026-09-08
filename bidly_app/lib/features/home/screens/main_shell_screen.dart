@@ -9,6 +9,7 @@ import '../../explore/screens/explore_screen.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../community/screens/communities_screen.dart';
 import '../../community/providers/community_provider.dart';
+import '../providers/reels_provider.dart';
 
 final selectedNavIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -154,7 +155,10 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
         if (index != 0) {
           ReelsControllerManager().pauseAll();
         } else if (_currentIndex != 0) {
-          ReelsControllerManager().resumeCurrent();
+          final isFeedTab = ref.read(reelsProvider).activeTab == 0;
+          if (isFeedTab) {
+            ReelsControllerManager().resumeCurrent();
+          }
         }
         ref.read(selectedNavIndexProvider.notifier).state = index;
         setState(() => _currentIndex = index);
@@ -222,9 +226,16 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
 
   Widget _buildSellButton() {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         ReelsControllerManager().pauseAll();
-        context.push(AppRoutes.sell);
+        await context.push(AppRoutes.sell);
+        if (mounted) {
+          final selectedNavIndex = ref.read(selectedNavIndexProvider);
+          final isFeedTab = ref.read(reelsProvider).activeTab == 0;
+          if (selectedNavIndex == 0 && isFeedTab && ModalRoute.of(context)?.isCurrent == true) {
+            ReelsControllerManager().resumeCurrent();
+          }
+        }
       },
       behavior: HitTestBehavior.opaque,
       child: Column(

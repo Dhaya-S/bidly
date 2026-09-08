@@ -474,6 +474,8 @@ class _LocationSetupScreenState extends ConsumerState<LocationSetupScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primary,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppTheme.primary,
+                    disabledForegroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),

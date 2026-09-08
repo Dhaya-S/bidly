@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,7 +33,7 @@ public class CommunityController {
     public ResponseEntity<ApiResponse<List<CommunityDto>>> getMyCommunities(
             @AuthenticationPrincipal UUID userId) {
         if (userId == null) {
-            throw com.bidly.common.exception.BidlyException.unauthorized("Authentication required to view your communities");
+            return ResponseEntity.ok(ApiResponse.success(Collections.emptyList()));
         }
         List<CommunityDto> list = communityService.getMyCommunities(userId);
         return ResponseEntity.ok(ApiResponse.success(list));
@@ -63,7 +64,7 @@ public class CommunityController {
     /**
      * GET /api/communities/{id} — Get community details
      */
-    @GetMapping("/{id}")
+    @GetMapping("/{id:[a-fA-F0-9\\-]{36}}")
     public ResponseEntity<ApiResponse<CommunityDto>> getCommunity(
             @PathVariable UUID id,
             @AuthenticationPrincipal UUID userId) {
@@ -74,7 +75,7 @@ public class CommunityController {
     /**
      * PUT /api/communities/{id} — Update community details
      */
-    @PutMapping("/{id}")
+    @PutMapping("/{id:[a-fA-F0-9\\-]{36}}")
     public ResponseEntity<ApiResponse<CommunityDto>> updateCommunity(
             @PathVariable UUID id,
             @AuthenticationPrincipal UUID userId,
@@ -86,7 +87,7 @@ public class CommunityController {
     /**
      * GET /api/communities/{id}/members — List community members
      */
-    @GetMapping("/{id}/members")
+    @GetMapping("/{id:[a-fA-F0-9\\-]{36}}/members")
     public ResponseEntity<ApiResponse<List<CommunityMemberDto>>> getMembers(@PathVariable UUID id) {
         List<CommunityMemberDto> members = communityService.getMembers(id);
         return ResponseEntity.ok(ApiResponse.success(members));
@@ -95,7 +96,7 @@ public class CommunityController {
     /**
      * POST /api/communities/{id}/members — Admin adds a member
      */
-    @PostMapping("/{id}/members")
+    @PostMapping("/{id:[a-fA-F0-9\\-]{36}}/members")
     public ResponseEntity<ApiResponse<CommunityMemberDto>> addMember(
             @PathVariable UUID id,
             @AuthenticationPrincipal UUID adminUserId,
@@ -107,7 +108,7 @@ public class CommunityController {
     /**
      * DELETE /api/communities/{id}/members/{targetUserId} — Admin removes member or member leaves
      */
-    @DeleteMapping("/{id}/members/{targetUserId}")
+    @DeleteMapping("/{id:[a-fA-F0-9\\-]{36}}/members/{targetUserId:[a-fA-F0-9\\-]{36}}")
     public ResponseEntity<ApiResponse<Map<String, String>>> removeMember(
             @PathVariable UUID id,
             @PathVariable UUID targetUserId,
@@ -119,7 +120,7 @@ public class CommunityController {
     /**
      * POST /api/communities/{id}/join — Join a community
      */
-    @PostMapping("/{id}/join")
+    @PostMapping("/{id:[a-fA-F0-9\\-]{36}}/join")
     public ResponseEntity<ApiResponse<Map<String, String>>> joinCommunity(
             @PathVariable UUID id,
             @AuthenticationPrincipal UUID userId) {
@@ -133,7 +134,7 @@ public class CommunityController {
     /**
      * POST /api/communities/{id}/leave — Leave a community
      */
-    @PostMapping("/{id}/leave")
+    @PostMapping("/{id:[a-fA-F0-9\\-]{36}}/leave")
     public ResponseEntity<ApiResponse<Map<String, String>>> leaveCommunity(
             @PathVariable UUID id,
             @AuthenticationPrincipal UUID userId) {
@@ -142,5 +143,38 @@ public class CommunityController {
         }
         communityService.leaveCommunity(id, userId);
         return ResponseEntity.ok(ApiResponse.success("Left community successfully", Map.of("status", "LEFT")));
+    }
+
+    /**
+     * POST /api/communities/{id}/toggle-mute — Toggle notification mute for this community
+     */
+    @PostMapping("/{id:[a-fA-F0-9\\-]{36}}/toggle-mute")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> toggleMute(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID userId) {
+        Map<String, Object> result = communityService.toggleMuteCommunity(id, userId);
+        return ResponseEntity.ok(ApiResponse.success("Notification mute toggled", result));
+    }
+
+    /**
+     * POST /api/communities/{id}/mute — Mute notifications for this community
+     */
+    @PostMapping("/{id:[a-fA-F0-9\\-]{36}}/mute")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> muteCommunity(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID userId) {
+        Map<String, Object> result = communityService.muteCommunity(id, userId);
+        return ResponseEntity.ok(ApiResponse.success("Community notifications muted", result));
+    }
+
+    /**
+     * DELETE /api/communities/{id}/mute — Unmute notifications for this community
+     */
+    @DeleteMapping("/{id:[a-fA-F0-9\\-]{36}}/mute")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> unmuteCommunity(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UUID userId) {
+        Map<String, Object> result = communityService.unmuteCommunity(id, userId);
+        return ResponseEntity.ok(ApiResponse.success("Community notifications unmuted", result));
     }
 }

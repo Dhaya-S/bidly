@@ -14,6 +14,7 @@ import '../../auction/providers/auction_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../explore/models/listing_model.dart';
 import '../../profile/providers/my_listings_provider.dart';
+import '../../home/services/reels_controller_manager.dart';
 
 class ListingDetailScreen extends ConsumerStatefulWidget {
   final String listingId;
@@ -29,7 +30,7 @@ class ListingDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<ListingDetailScreen> createState() => _ListingDetailScreenState();
 }
 
-class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
+class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> with WidgetsBindingObserver {
   ListingModel? _listing;
   bool _isLoading = false;
   int _currentImageIndex = 0;
@@ -46,6 +47,8 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ReelsControllerManager().pauseAll();
     _listing = widget.initialListing;
     _isWishlisted = widget.initialListing?.isWishlisted ?? false;
     if (widget.initialListing?.isAuction == true) {
@@ -54,6 +57,16 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
       });
     }
     _fetchListingDetails();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _videoController?.pause();
+      if (mounted) {
+        setState(() => _isVideoPlaying = false);
+      }
+    }
   }
 
   void _onMediaPageChanged(int index, List<MediaItemModel> mediaList) {
@@ -72,6 +85,7 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
     if (_activeVideoIndex == index && _videoController != null) return;
     _disposeVideoController();
     _activeVideoIndex = index;
+    _isVideoPlaying = true;
     final resolvedUrl = ApiClient.resolveMediaUrl(rawUrl);
     final uri = Uri.parse(resolvedUrl);
     final controller = VideoPlayerController.networkUrl(uri);
@@ -89,10 +103,15 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
       }
       controller.setLooping(true);
       controller.setVolume(_isVideoMuted ? 0.0 : 1.0);
-      controller.play();
+      final isCurrentRoute = ModalRoute.of(context)?.isCurrent == true;
+      if (isCurrentRoute && _isVideoPlaying) {
+        controller.play();
+      } else {
+        controller.pause();
+      }
       setState(() {
         _isVideoInitialized = true;
-        _isVideoPlaying = true;
+        _isVideoPlaying = isCurrentRoute && _isVideoPlaying;
         _isVideoBuffering = false;
       });
     } catch (e) {
@@ -146,25 +165,31 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
     }
   }
 
-  void _onMakeOffer() {
+  void _onMakeOffer() async {
     if (_listing == null) return;
+    _videoController?.pause();
+    if (mounted) setState(() => _isVideoPlaying = false);
     final isDirectSale = _listing!.sellingMethod.toUpperCase() != 'AUCTION';
     if (isDirectSale) {
-      context.push(
+      await context.push(
         '/chat/offer/${_listing!.id}',
         extra: _listing,
       );
     } else {
-      context.push('/auction/${_listing!.id}/bid');
+      await context.push('/auction/${_listing!.id}/bid');
     }
   }
 
   void _shareListing() {
     if (_listing == null) return;
+    _videoController?.pause();
+    if (mounted) setState(() => _isVideoPlaying = false);
     Share.share('Check out "${_listing!.title}" on Bidly for ${_listing!.formattedPrice}!');
   }
 
   void _showDeleteConfirmationDialog(ListingModel listing) {
+    _videoController?.pause();
+    if (mounted) setState(() => _isVideoPlaying = false);
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -304,6 +329,7 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _disposeVideoController();
     _pageController.dispose();
     super.dispose();
@@ -410,7 +436,10 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
         elevation: 0.5,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            _videoController?.pause();
+            context.pop();
+          },
         ),
         title: const Text(
           'Product Details',
@@ -475,7 +504,11 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                   SizedBox(
                     height: 36,
                     child: ElevatedButton(
-                      onPressed: () => context.push('/auction/${listing.id}/bid'),
+                      onPressed: () async {
+                        _videoController?.pause();
+                        if (mounted) setState(() => _isVideoPlaying = false);
+                        await context.push('/auction/${listing.id}/bid');
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEF4444),
                         foregroundColor: Colors.white,
@@ -771,6 +804,8 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                           right: 14,
                           child: GestureDetector(
                             onTap: () {
+                              _videoController?.pause();
+                              if (mounted) setState(() => _isVideoPlaying = false);
                               context.push('/home?tab=0');
                             },
                             child: Container(
@@ -966,6 +1001,8 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                             const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () async {
+                                _videoController?.pause();
+                                if (mounted) setState(() => _isVideoPlaying = false);
                                 final updated = await context.push(
                                   AppRoutes.editListing,
                                   extra: listing,
@@ -1039,12 +1076,16 @@ class _ListingDetailScreenState extends ConsumerState<ListingDetailScreen> {
                           const SizedBox(width: 12),
                           const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.textSecondary),
                           const SizedBox(width: 4),
-                          Text(
-                            '${listing.locality ?? listing.city ?? 'Local'}, ${listing.distanceKm.toStringAsFixed(1)} km',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textSecondary,
-                              fontWeight: FontWeight.w500,
+                          Expanded(
+                            child: Text(
+                              listing.formattedLocation,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],

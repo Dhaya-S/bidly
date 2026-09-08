@@ -67,7 +67,10 @@ abstract class AppTheme {
   // ── Light Theme ────────────────────────────────────────────
   static ThemeData get light => ThemeData(
         useMaterial3: true,
-        textTheme: GoogleFonts.poppinsTextTheme(),
+        textTheme: GoogleFonts.poppinsTextTheme().apply(
+          bodyColor: textPrimary,
+          displayColor: textPrimary,
+        ),
         colorScheme: ColorScheme.fromSeed(
           seedColor: primary,
           brightness: Brightness.light,
@@ -95,6 +98,8 @@ abstract class AppTheme {
           style: ElevatedButton.styleFrom(
             backgroundColor: primary,
             foregroundColor: Colors.white,
+            disabledBackgroundColor: primary,
+            disabledForegroundColor: Colors.white,
             elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(radiusMD),
@@ -149,6 +154,24 @@ abstract class AppTheme {
             fontWeight: FontWeight.w400,
             fontFamily: 'Poppins',
           ),
+          labelStyle: const TextStyle(
+            color: textSecondary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            fontFamily: 'Poppins',
+          ),
+          floatingLabelStyle: const TextStyle(
+            color: primary,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'Poppins',
+          ),
+          prefixStyle: const TextStyle(
+            color: textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            fontFamily: 'Poppins',
+          ),
         ),
         cardTheme: CardThemeData(
           color: surface,
@@ -161,46 +184,6 @@ abstract class AppTheme {
         ),
       );
 
-  // ── Dark Theme ─────────────────────────────────────────────
-  static ThemeData get dark => ThemeData(
-        useMaterial3: true,
-        fontFamily: 'Poppins',
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primary,
-          brightness: Brightness.dark,
-          primary: primary,
-          onPrimary: Colors.white,
-          secondary: accent,
-          surface: darkSurface,
-          onSurface: darkTextPrimary,
-          error: error,
-        ),
-        scaffoldBackgroundColor: darkBackground,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: darkSurface,
-          foregroundColor: darkTextPrimary,
-          elevation: 0,
-          titleTextStyle: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: darkTextPrimary,
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: primary,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(radiusMD),
-            ),
-            textStyle: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      );
+  // ── Dark Theme (fallback matches light for consistent readability) ─────────
+  static ThemeData get dark => light;
 }

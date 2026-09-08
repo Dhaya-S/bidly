@@ -197,7 +197,7 @@ class _MarketplaceGridCardState extends ConsumerState<MarketplaceGridCard> with 
                           const Icon(Icons.location_on, size: 9, color: Colors.white),
                           const SizedBox(width: 2),
                           Text(
-                            '${listing.distanceKm.toStringAsFixed(1)} km',
+                            listing.formattedDistance,
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 9,

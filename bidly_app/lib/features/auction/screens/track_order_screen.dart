@@ -286,7 +286,13 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                                         controller: _otpController,
                                         keyboardType: TextInputType.number,
                                         maxLength: 6,
-                                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: 4),
+                                        style: const TextStyle(
+                                          fontFamily: 'Poppins',
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 4,
+                                          color: Color(0xFF0F172A),
+                                        ),
                                         decoration: InputDecoration(
                                           counterText: '',
                                           hintText: '000000',
@@ -304,6 +310,8 @@ class _TrackOrderScreenState extends ConsumerState<TrackOrderScreen> {
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(0xFF004E54),
                                         foregroundColor: Colors.white,
+                                        disabledBackgroundColor: const Color(0xFF004E54),
+                                        disabledForegroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                       ),

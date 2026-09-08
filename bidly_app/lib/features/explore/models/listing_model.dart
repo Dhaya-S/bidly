@@ -50,7 +50,7 @@ class ListingModel {
     this.currentBid,
     this.auctionEndTime,
     this.rating = 4.5,
-    this.distanceKm = 2.0,
+    this.distanceKm = 0.0,
     this.isWishlisted = false,
     this.isLikedByMe = false,
     this.sellerName,
@@ -109,7 +109,7 @@ class ListingModel {
           ? DateTime.tryParse(json['auctionEndTime'].toString())
           : null,
       rating: (json['rating'] as num?)?.toDouble() ?? 4.5,
-      distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 2.0,
+      distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0.0,
       isWishlisted: json['wishlisted'] as bool? ?? false,
       isLikedByMe: json['isLikedByMe'] as bool? ?? json['likedByMe'] as bool? ?? false,
       sellerName: json['sellerName'] as String?,
@@ -169,6 +169,29 @@ class ListingModel {
   String get formattedPrice {
     final format = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
     return format.format(isAuction ? (currentBid ?? price) : price);
+  }
+
+  String get formattedDistance {
+    if (distanceKm <= 0) {
+      return locality ?? city ?? 'Local';
+    }
+    if (distanceKm < 0.1) return '< 0.1 km';
+    return '${distanceKm.toStringAsFixed(1)} km';
+  }
+
+  String get formattedLocation {
+    final loc = locality?.trim().isNotEmpty == true
+        ? locality!.trim()
+        : (city?.trim().isNotEmpty == true ? city!.trim() : null);
+    if (distanceKm > 0) {
+      final distStr = distanceKm < 0.1 ? '< 0.1 km' : '${distanceKm.toStringAsFixed(1)} km';
+      if (loc != null) {
+        return '$loc, $distStr';
+      }
+      return distStr;
+    }
+    if (loc != null) return loc;
+    return 'Local';
   }
 
   String get formattedCondition {

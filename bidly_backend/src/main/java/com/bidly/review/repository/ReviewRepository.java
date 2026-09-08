@@ -17,5 +17,7 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
     @EntityGraph(attributePaths = {"reviewer", "photos"})
     List<Review> findBySellerIdOrderByCreatedAtDesc(UUID sellerId);
 
+    long countBySellerId(UUID sellerId);
+
     boolean existsByOrderId(UUID orderId);
 }

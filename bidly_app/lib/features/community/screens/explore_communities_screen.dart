@@ -163,7 +163,7 @@ class _ExploreCommunitiesScreenState extends ConsumerState<ExploreCommunitiesScr
                   child: TextField(
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5),
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                     decoration: const InputDecoration(
                       hintText: 'Search communities...',
                       hintStyle: TextStyle(
@@ -282,7 +282,7 @@ class _ExploreCommunitiesScreenState extends ConsumerState<ExploreCommunitiesScr
                 ] else if (!isFiltered) ...[
                   // Grouped View (Discover, Suggested, Nearby, Trending) using real stored communities
                   if (discoverList.isNotEmpty)
-                    _buildSection('Discover', Icons.explore_outlined, discoverList, isFirstSection: true),
+                    _buildSection('Discover', Icons.explore_outlined, discoverList),
 
                   if (suggestedList.isNotEmpty)
                     _buildSection('Suggested', Icons.people_outline_rounded, suggestedList),
@@ -351,7 +351,7 @@ class _ExploreCommunitiesScreenState extends ConsumerState<ExploreCommunitiesScr
                       ],
                     ),
                     const SizedBox(height: 12),
-                    ...filteredResults.map((community) => _buildCommunityCard(community, isPrimary: false)),
+                    ...filteredResults.map((community) => _buildCommunityCard(community)),
                   ],
                 ],
               ],
@@ -362,7 +362,7 @@ class _ExploreCommunitiesScreenState extends ConsumerState<ExploreCommunitiesScr
     );
   }
 
-  Widget _buildSection(String title, IconData icon, List<CommunityModel> items, {bool isFirstSection = false}) {
+  Widget _buildSection(String title, IconData icon, List<CommunityModel> items) {
     if (items.isEmpty) return const SizedBox.shrink();
 
     return Column(
@@ -408,18 +408,13 @@ class _ExploreCommunitiesScreenState extends ConsumerState<ExploreCommunitiesScr
         const SizedBox(height: 12),
 
         // Real Community Cards from Database
-        ...items.asMap().entries.map((entry) {
-          final index = entry.key;
-          final community = entry.value;
-          final isPrimary = isFirstSection && index == 0;
-          return _buildCommunityCard(community, isPrimary: isPrimary);
-        }),
+        ...items.map((community) => _buildCommunityCard(community)),
         const SizedBox(height: 14),
       ],
     );
   }
 
-  Widget _buildCommunityCard(CommunityModel community, {bool isPrimary = false}) {
+  Widget _buildCommunityCard(CommunityModel community) {
     final typeLabel = community.type.isNotEmpty
         ? '${community.type[0].toUpperCase()}${community.type.substring(1).toLowerCase()}'
         : community.category;
@@ -505,20 +500,16 @@ class _ExploreCommunitiesScreenState extends ConsumerState<ExploreCommunitiesScr
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
               decoration: BoxDecoration(
-                color: isPrimary ? const Color(0xFF004E54) : Colors.white,
+                color: const Color(0xFF004E54),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: const Color(0xFF004E54),
-                  width: 1.2,
-                ),
               ),
-              child: Text(
+              child: const Text(
                 'View',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: isPrimary ? Colors.white : const Color(0xFF004E54),
+                  color: Colors.white,
                 ),
               ),
             ),

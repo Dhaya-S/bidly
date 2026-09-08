@@ -59,6 +59,7 @@ public class AuctionMoneyWinnerOrderIntegrationTest {
     @Mock private NotificationService notificationService;
     @Mock private ChatRoomRepository chatRoomRepository;
     @Mock private ChatMessageRepository chatMessageRepository;
+    @Mock private com.bidly.review.repository.ReviewRepository reviewRepository;
 
     private AuctionService auctionService;
     private OrderService orderService;
@@ -97,6 +98,7 @@ public class AuctionMoneyWinnerOrderIntegrationTest {
                 notificationService,
                 chatRoomRepository,
                 chatMessageRepository,
+                reviewRepository,
                 messagingTemplate
         );
 

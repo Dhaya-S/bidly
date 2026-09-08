@@ -199,9 +199,9 @@ public class ListingService {
 
         final Listing saved = listingRepository.save(listing);
 
-        // Save media photos
+        // Save media photos and reel video
+        int order = 1;
         if (request.getMediaUrls() != null && !request.getMediaUrls().isEmpty()) {
-            int order = 1;
             for (String url : request.getMediaUrls()) {
                 if (url != null && !url.trim().isEmpty()) {
                     ListingMedia media = new ListingMedia(saved, url.trim(), ListingMedia.MediaType.IMAGE, order++);
@@ -209,11 +209,20 @@ public class ListingService {
                 }
             }
         }
+        if (request.getReelUrl() != null && !request.getReelUrl().trim().isEmpty()) {
+            ListingMedia reelMedia = new ListingMedia(saved, request.getReelUrl().trim(), ListingMedia.MediaType.VIDEO, order++);
+            mediaRepository.save(reelMedia);
+        }
 
-        // Only create a CommunityPost if the seller provided photos for a post!
-        // If the user listed a reel only (no photos), do NOT create a CommunityPost so it shows strictly in Feed (Reels).
         boolean hasPhotos = request.getMediaUrls() != null && !request.getMediaUrls().isEmpty();
-        if (hasPhotos) {
+        boolean hasReel = request.getReelUrl() != null && !request.getReelUrl().trim().isEmpty();
+        boolean hasMedia = hasPhotos || hasReel;
+
+        if (hasMedia) {
+            String postMediaUrl = hasPhotos ? request.getMediaUrls().get(0)
+                    : ((request.getPrimaryImageUrl() != null && !request.getPrimaryImageUrl().isBlank()) ? request.getPrimaryImageUrl() : request.getReelUrl());
+            String postMediaType = hasPhotos ? "IMAGE" : "VIDEO";
+
             if (request.getCommunityId() != null) {
                 final User postAuthor = seller;
                 communityRepository.findById(request.getCommunityId()).ifPresent(comm -> {
@@ -224,8 +233,8 @@ public class ListingService {
                     String priceFormatted = "₹" + (request.getPrice() != null ? request.getPrice().stripTrailingZeros().toPlainString() : "0");
                     String content = request.getTitle() + " • " + priceFormatted + (request.getDescription() != null && !request.getDescription().isBlank() ? "\n" + request.getDescription() : "");
                     post.setContent(content);
-                    post.setMediaUrl(request.getMediaUrls().get(0));
-                    post.setMediaType("IMAGE");
+                    post.setMediaUrl(postMediaUrl);
+                    post.setMediaType(postMediaType);
                     post.setTag("AUCTION".equalsIgnoreCase(request.getSellingMethod()) ? "AUCTION" : "DIRECT");
                     post.setLikesCount(0);
                     post.setSharesCount(0);
@@ -241,8 +250,8 @@ public class ListingService {
                 String priceFormatted = "₹" + (request.getPrice() != null ? request.getPrice().toPlainString() : "0");
                 String content = request.getTitle() + " • " + priceFormatted + (request.getDescription() != null && !request.getDescription().isBlank() ? "\n" + request.getDescription() : "");
                 post.setContent(content);
-                post.setMediaUrl(request.getMediaUrls().get(0));
-                post.setMediaType("IMAGE");
+                post.setMediaUrl(postMediaUrl);
+                post.setMediaType(postMediaType);
                 post.setTag("AUCTION".equalsIgnoreCase(request.getSellingMethod()) ? "AUCTION" : "DIRECT");
                 post.setLikesCount(0);
                 post.setSharesCount(0);
@@ -597,7 +606,7 @@ public class ListingService {
      */
     @Transactional(readOnly = true)
     public List<ListingSummaryDto> getRecentlyViewed(UUID currentUserId) {
-        List<Listing> recent = listingRepository.findTop8ByStatusOrderByCreatedAtDesc(Listing.ListingStatus.ACTIVE);
+        List<Listing> recent = listingRepository.findTop8ByStatusAndCommunityIdIsNullOrderByCreatedAtDesc(Listing.ListingStatus.ACTIVE);
         return recent.stream()
                 .limit(4)
                 .map(l -> mapToCardDto(l, currentUserId))
@@ -793,33 +802,43 @@ public class ListingService {
         int currentCount = listing.getLikesCount();
         int newCount = currentCount;
 
+        boolean finalLiked;
         if (desiredLiked != null) {
             if (desiredLiked && !alreadyLiked) {
                 listingLikeRepository.save(new ListingLike(userId, listingId));
+                listingLikeRepository.flush();
                 newCount = currentCount + 1;
                 listing.setLikesCount(newCount);
                 listingRepository.saveAndFlush(listing);
+                finalLiked = true;
             } else if (!desiredLiked && alreadyLiked) {
                 listingLikeRepository.deleteByUserIdAndListingId(userId, listingId);
+                listingLikeRepository.flush();
                 newCount = Math.max(0, currentCount - 1);
                 listing.setLikesCount(newCount);
                 listingRepository.saveAndFlush(listing);
+                finalLiked = false;
+            } else {
+                finalLiked = desiredLiked;
             }
         } else {
             if (alreadyLiked) {
                 listingLikeRepository.deleteByUserIdAndListingId(userId, listingId);
+                listingLikeRepository.flush();
                 newCount = Math.max(0, currentCount - 1);
                 listing.setLikesCount(newCount);
                 listingRepository.saveAndFlush(listing);
+                finalLiked = false;
             } else {
                 listingLikeRepository.save(new ListingLike(userId, listingId));
+                listingLikeRepository.flush();
                 newCount = currentCount + 1;
                 listing.setLikesCount(newCount);
                 listingRepository.saveAndFlush(listing);
+                finalLiked = true;
             }
         }
 
-        boolean finalLiked = listingLikeRepository.existsByUserIdAndListingId(userId, listingId);
         log.info("[LIKE_REEL] listing={} action={} finalLiked={} count={}", listingId, action, finalLiked, newCount);
 
         return Map.of(
@@ -1013,7 +1032,7 @@ public class ListingService {
     @Transactional(readOnly = true)
     public List<ListingSummaryDto> getWishlist(UUID userId) {
         // Return active listings marked as liked
-        List<Listing> active = listingRepository.findTop8ByStatusOrderByCreatedAtDesc(Listing.ListingStatus.ACTIVE);
+        List<Listing> active = listingRepository.findTop8ByStatusAndCommunityIdIsNullOrderByCreatedAtDesc(Listing.ListingStatus.ACTIVE);
         return active.stream()
                 .map(l -> {
                     ListingSummaryDto dto = mapToCardDto(l, userId);

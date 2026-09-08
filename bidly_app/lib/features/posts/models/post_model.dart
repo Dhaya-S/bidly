@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_theme.dart';
 import '../../explore/models/listing_model.dart';
@@ -13,6 +14,8 @@ class PostModel {
   final String content;
   final String? mediaUrl;
   final String mediaType;
+  final String? videoUrl;
+  final String? reelUrl;
   final String tag; // SELLING, ANNOUNCEMENT, REVIEW, GENERAL
   final int likesCount;
   final int sharesCount;
@@ -30,7 +33,11 @@ class PostModel {
   final int bidsCount;
   final String? listingTitle;
   final String? listingDescription;
-  final double distanceKm;
+  final double? distanceKm;
+  final double? latitude;
+  final double? longitude;
+  final String? locality;
+  final String? city;
 
   const PostModel({
     required this.id,
@@ -42,6 +49,8 @@ class PostModel {
     required this.content,
     this.mediaUrl,
     this.mediaType = 'IMAGE',
+    this.videoUrl,
+    this.reelUrl,
     this.tag = 'SELLING',
     this.likesCount = 0,
     this.sharesCount = 0,
@@ -57,7 +66,11 @@ class PostModel {
     this.bidsCount = 0,
     this.listingTitle,
     this.listingDescription,
-    this.distanceKm = 2.0,
+    this.distanceKm,
+    this.latitude,
+    this.longitude,
+    this.locality,
+    this.city,
   });
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
@@ -72,6 +85,14 @@ class PostModel {
       parsedMediaItems = [MediaItemModel(url: url, type: type, sortOrder: 0)];
     }
 
+    final resolvedVideoUrl = json['videoUrl'] as String? ?? json['reelUrl'] as String?;
+    if (resolvedVideoUrl != null && resolvedVideoUrl.trim().isNotEmpty) {
+      final vUrl = resolvedVideoUrl.trim();
+      if (!parsedMediaItems.any((m) => m.url == vUrl || m.type == 'VIDEO')) {
+        parsedMediaItems.add(MediaItemModel(url: vUrl, type: 'VIDEO', sortOrder: parsedMediaItems.length));
+      }
+    }
+
     return PostModel(
       id: json['id'] as String? ?? '',
       authorId: json['authorId'] as String?,
@@ -81,7 +102,9 @@ class PostModel {
       communityName: json['communityName'] as String?,
       content: json['content'] as String? ?? '',
       mediaUrl: json['mediaUrl'] as String?,
-      mediaType: json['mediaType'] as String? ?? 'IMAGE',
+      mediaType: json['mediaType'] as String? ?? (resolvedVideoUrl != null && parsedMediaItems.length == 1 ? 'VIDEO' : 'IMAGE'),
+      videoUrl: resolvedVideoUrl,
+      reelUrl: json['reelUrl'] as String? ?? resolvedVideoUrl,
       tag: json['tag'] as String? ?? 'SELLING',
       likesCount: json['likesCount'] as int? ?? 0,
       sharesCount: json['sharesCount'] as int? ?? 0,
@@ -100,8 +123,11 @@ class PostModel {
           : null,
       bidsCount: (json['bidsCount'] as num?)?.toInt() ?? 0,
       listingTitle: json['listingTitle'] as String?,
-      listingDescription: json['listingDescription'] as String?,
-      distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 2.0,
+      distanceKm: (json['distanceKm'] as num?)?.toDouble(),
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      locality: json['locality'] as String?,
+      city: json['city'] as String?,
     );
   }
 
@@ -112,6 +138,12 @@ class PostModel {
     String? listingTitle,
     String? listingDescription,
     double? distanceKm,
+    double? latitude,
+    double? longitude,
+    String? locality,
+    String? city,
+    String? videoUrl,
+    String? reelUrl,
   }) {
     return PostModel(
       id: id,
@@ -123,6 +155,8 @@ class PostModel {
       content: content,
       mediaUrl: mediaUrl,
       mediaType: mediaType,
+      videoUrl: videoUrl ?? this.videoUrl,
+      reelUrl: reelUrl ?? this.reelUrl,
       tag: tag,
       likesCount: likesCount ?? this.likesCount,
       sharesCount: sharesCount ?? this.sharesCount,
@@ -139,7 +173,34 @@ class PostModel {
       listingTitle: listingTitle ?? this.listingTitle,
       listingDescription: listingDescription ?? this.listingDescription,
       distanceKm: distanceKm ?? this.distanceKm,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      locality: locality ?? this.locality,
+      city: city ?? this.city,
     );
+  }
+
+  String formatLocationBadge({double? userLat, double? userLng}) {
+    double? dist = distanceKm;
+    if (userLat != null && userLng != null && latitude != null && longitude != null) {
+      final meters = Geolocator.distanceBetween(userLat, userLng, latitude!, longitude!);
+      dist = meters / 1000;
+    }
+
+    final loc = locality?.trim().isNotEmpty == true
+        ? locality!.trim()
+        : (city?.trim().isNotEmpty == true ? city!.trim() : null);
+
+    if (dist != null && dist > 0) {
+      final distStr = dist < 0.1 ? '< 0.1 km' : '${dist.toStringAsFixed(1)} km';
+      if (loc != null) {
+        return '$loc · $distStr';
+      }
+      return distStr;
+    }
+
+    if (loc != null) return loc;
+    return 'Nearby';
   }
 
   String get displayTitle {

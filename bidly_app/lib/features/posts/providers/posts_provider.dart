@@ -13,6 +13,8 @@ class PostsState {
   final bool hasMore;
   final Map<String, bool> likedPostIds;
   final Map<String, int> postLikesCounts;
+  final Set<String> hiddenPostIds;
+  final Set<String> restrictedUserIds;
 
   const PostsState({
     this.isLoading = false,
@@ -24,6 +26,8 @@ class PostsState {
     this.hasMore = true,
     this.likedPostIds = const {},
     this.postLikesCounts = const {},
+    this.hiddenPostIds = const {},
+    this.restrictedUserIds = const {},
   });
 
   PostsState copyWith({
@@ -36,6 +40,8 @@ class PostsState {
     bool? hasMore,
     Map<String, bool>? likedPostIds,
     Map<String, int>? postLikesCounts,
+    Set<String>? hiddenPostIds,
+    Set<String>? restrictedUserIds,
   }) {
     return PostsState(
       isLoading: isLoading ?? this.isLoading,
@@ -47,6 +53,8 @@ class PostsState {
       hasMore: hasMore ?? this.hasMore,
       likedPostIds: likedPostIds ?? this.likedPostIds,
       postLikesCounts: postLikesCounts ?? this.postLikesCounts,
+      hiddenPostIds: hiddenPostIds ?? this.hiddenPostIds,
+      restrictedUserIds: restrictedUserIds ?? this.restrictedUserIds,
     );
   }
 
@@ -61,6 +69,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
   final ApiClient _apiClient;
   static const int _pageSize = 10;
   final Set<String> _inFlightLikes = {};
+  final Map<String, bool> _pendingTargetLikes = {};
 
   PostsNotifier(this._apiClient) : super(const PostsState()) {
     fetchFeed();
@@ -88,6 +97,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
   }
 
   Future<void> fetchFeed({bool isRefresh = false}) async {
+    if (!mounted) return;
     if (state.isLoading && !isRefresh) return;
     if (!isRefresh && state.posts.isNotEmpty) return;
 
@@ -100,6 +110,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
 
     try {
       final response = await _apiClient.dio.get('/posts?page=0&size=$_pageSize');
+      if (!mounted) return;
       if (response.data != null && response.data['success'] == true) {
         final list = response.data['data'] as List;
         final fetchedPosts = list
@@ -122,6 +133,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
         final localPending = state.posts.where((p) => !backendIds.contains(p.id)).toList();
         final finalPosts = [...localPending, ...fetchedPosts];
 
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           posts: finalPosts,
@@ -131,12 +143,14 @@ class PostsNotifier extends StateNotifier<PostsState> {
           postLikesCounts: newCounts,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           errorMessage: 'Failed to load posts',
         );
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         errorMessage: 'Failed to connect to feed server',
@@ -145,6 +159,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
   }
 
   Future<void> fetchNextPage() async {
+    if (!mounted) return;
     if (state.isLoading || state.isLoadingMore || !state.hasMore) return;
 
     final nextPage = state.currentPage + 1;
@@ -152,6 +167,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
 
     try {
       final response = await _apiClient.dio.get('/posts?page=$nextPage&size=$_pageSize');
+      if (!mounted) return;
       if (response.data != null && response.data['success'] == true) {
         final list = response.data['data'] as List;
         final newPosts = list
@@ -168,6 +184,7 @@ class PostsNotifier extends StateNotifier<PostsState> {
           newCounts[p.id] = p.likesCount;
         }
 
+        if (!mounted) return;
         state = state.copyWith(
           isLoadingMore: false,
           currentPage: nextPage,
@@ -177,14 +194,16 @@ class PostsNotifier extends StateNotifier<PostsState> {
           postLikesCounts: newCounts,
         );
       } else {
+        if (!mounted) return;
         state = state.copyWith(isLoadingMore: false, hasMore: false);
       }
     } catch (_) {
+      if (!mounted) return;
       state = state.copyWith(isLoadingMore: false);
     }
   }
 
-  /// Toggle or ensure like on a post with idempotency, in-flight deduplication, and optimistic update.
+  /// Toggle or ensure like on a post with idempotency, pending intent queueing, and optimistic update.
   Future<void> toggleLike(
     String postId,
     int serverLikesCount, {
@@ -194,56 +213,73 @@ class PostsNotifier extends StateNotifier<PostsState> {
     final currentlyLiked = state.isLiked(postId, initialLiked);
     final currentCount = state.likesCount(postId, serverLikesCount);
 
-    // If target state is specified and already satisfied, do nothing
+    final newLiked = targetLiked ?? !currentlyLiked;
     if (targetLiked != null && targetLiked == currentlyLiked) {
       return;
     }
 
-    // In-flight deduplication guard
-    if (_inFlightLikes.contains(postId)) {
-      debugPrint('[LIKE_REQUEST] id=$postId duplicate=in_flight_ignored');
-      return;
-    }
-    _inFlightLikes.add(postId);
-
-    final newLiked = targetLiked ?? !currentlyLiked;
     final newCount = newLiked
         ? currentCount + 1
         : (currentCount > 0 ? currentCount - 1 : 0);
 
-    debugPrint('[LIKE_POST] post=$postId action=${targetLiked != null ? (targetLiked ? "like" : "unlike") : "toggle"} optimistic=$newLiked count=$newCount');
+    debugPrint('[LIKE_POST] post=$postId action=${newLiked ? "like" : "unlike"} optimistic=$newLiked count=$newCount');
 
     // Optimistic UI update — targeted map update without rebuilding entire post list
     final optimisticLiked = Map<String, bool>.from(state.likedPostIds)..[postId] = newLiked;
     final optimisticCounts = Map<String, int>.from(state.postLikesCounts)..[postId] = newCount;
     state = state.copyWith(likedPostIds: optimisticLiked, postLikesCounts: optimisticCounts);
 
+    // If already in-flight, queue this new target state and return immediately
+    if (_inFlightLikes.contains(postId)) {
+      _pendingTargetLikes[postId] = newLiked;
+      debugPrint('[LIKE_POST] id=$postId queued pending target: $newLiked');
+      return;
+    }
+
+    _inFlightLikes.add(postId);
+
     try {
-      final actionParam = targetLiked != null ? (targetLiked ? 'like' : 'unlike') : null;
-      final url = actionParam != null
-          ? '/posts/$postId/like?action=$actionParam'
-          : '/posts/$postId/like';
+      bool? nextDesired = newLiked;
+      while (nextDesired != null) {
+        final action = nextDesired ? 'like' : 'unlike';
+        final url = '/posts/$postId/like?action=$action';
+        _pendingTargetLikes.remove(postId);
 
-      final response = await _apiClient.dio.post(url);
-      if (response.data != null && response.data['success'] == true) {
-        final data = response.data['data'] as Map<String, dynamic>?;
-        if (data != null) {
-          final serverLiked = data['isLikedByMe'] as bool? ?? data['likedByMe'] as bool? ?? data['liked'] as bool? ?? newLiked;
-          final serverCount = (data['likesCount'] as num?)?.toInt() ?? newCount;
-          debugPrint('[LIKE_POST] post=$postId server=$serverLiked count=$serverCount');
+        final response = await _apiClient.dio.post(url);
+        if (response.data != null && response.data['success'] == true) {
+          final data = response.data['data'] as Map<String, dynamic>?;
 
-          final confirmedLiked = Map<String, bool>.from(state.likedPostIds)..[postId] = serverLiked;
-          final confirmedCounts = Map<String, int>.from(state.postLikesCounts)..[postId] = serverCount;
-          state = state.copyWith(likedPostIds: confirmedLiked, postLikesCounts: confirmedCounts);
+          // If another tap occurred while this HTTP call was in-flight, continue loop with newest intent
+          if (_pendingTargetLikes.containsKey(postId)) {
+            nextDesired = _pendingTargetLikes[postId];
+            continue;
+          }
+
+          if (data != null) {
+            final serverLiked = data['isLikedByMe'] as bool? ??
+                data['likedByMe'] as bool? ??
+                data['liked'] as bool? ??
+                nextDesired;
+            final serverCount = (data['likesCount'] as num?)?.toInt() ?? state.likesCount(postId, newCount);
+            debugPrint('[LIKE_POST] post=$postId server=$serverLiked count=$serverCount');
+
+            final confirmedLiked = Map<String, bool>.from(state.likedPostIds)..[postId] = serverLiked;
+            final confirmedCounts = Map<String, int>.from(state.postLikesCounts)..[postId] = serverCount;
+            state = state.copyWith(likedPostIds: confirmedLiked, postLikesCounts: confirmedCounts);
+          }
         }
+        nextDesired = _pendingTargetLikes.remove(postId);
       }
     } catch (e) {
       debugPrint('[LIKE_POST] post=$postId rollback=true error=$e');
-      final revertedLiked = Map<String, bool>.from(state.likedPostIds)..[postId] = currentlyLiked;
-      final revertedCounts = Map<String, int>.from(state.postLikesCounts)..[postId] = currentCount;
-      state = state.copyWith(likedPostIds: revertedLiked, postLikesCounts: revertedCounts);
+      if (!_pendingTargetLikes.containsKey(postId)) {
+        final revertedLiked = Map<String, bool>.from(state.likedPostIds)..[postId] = currentlyLiked;
+        final revertedCounts = Map<String, int>.from(state.postLikesCounts)..[postId] = currentCount;
+        state = state.copyWith(likedPostIds: revertedLiked, postLikesCounts: revertedCounts);
+      }
     } finally {
       _inFlightLikes.remove(postId);
+      _pendingTargetLikes.remove(postId);
     }
   }
 
@@ -260,6 +296,71 @@ class PostsNotifier extends StateNotifier<PostsState> {
     try {
       await _apiClient.dio.post('/posts/$postId/share');
     } catch (_) {}
+  }
+
+  /// Hide a post ("Not Interested") — instantly removes from local feed and persists to backend.
+  Future<void> hidePost(String postId) async {
+    // Optimistic: immediately remove from local list
+    final updated = state.posts.where((p) => p.id != postId).toList();
+    final newHidden = {...state.hiddenPostIds, postId};
+    state = state.copyWith(posts: updated, hiddenPostIds: newHidden);
+    debugPrint('[HIDE_POST] post=$postId removed from local feed');
+
+    try {
+      await _apiClient.dio.post('/posts/$postId/hide');
+    } catch (e) {
+      debugPrint('[HIDE_POST] API error: $e');
+    }
+  }
+
+  /// Unhide a post ("Undo" Not Interested) — instantly re-inserts post and persists to backend.
+  Future<void> unhidePost(String postId, {PostModel? restorePost, int? index}) async {
+    final newHidden = Set<String>.from(state.hiddenPostIds)..remove(postId);
+    List<PostModel> updated = List.from(state.posts);
+    if (restorePost != null && !updated.any((p) => p.id == postId)) {
+      if (index != null && index >= 0 && index <= updated.length) {
+        updated.insert(index, restorePost);
+      } else {
+        updated.insert(0, restorePost);
+      }
+    }
+    state = state.copyWith(posts: updated, hiddenPostIds: newHidden);
+    debugPrint('[UNHIDE_POST] post=$postId restored to local feed');
+
+    try {
+      await _apiClient.dio.delete('/posts/$postId/hide');
+    } catch (e) {
+      debugPrint('[UNHIDE_POST] API error: $e');
+    }
+  }
+
+  /// Restrict a user — instantly removes ALL their posts from local feed and persists to backend.
+  Future<void> restrictUser(String authorId, String authorName) async {
+    // Optimistic: immediately remove all posts by this author
+    final updated = state.posts.where((p) => p.authorId != authorId).toList();
+    final newRestricted = {...state.restrictedUserIds, authorId};
+    state = state.copyWith(posts: updated, restrictedUserIds: newRestricted);
+    debugPrint('[RESTRICT_USER] author=$authorId ($authorName) — removed ${state.posts.length - updated.length} posts');
+
+    try {
+      await _apiClient.dio.post('/posts/restrict/$authorId');
+    } catch (e) {
+      debugPrint('[RESTRICT_USER] API error: $e');
+    }
+  }
+
+  /// Unrestrict a user — removes restriction and reloads feed.
+  Future<void> unrestrictUser(String authorId) async {
+    final newRestricted = Set<String>.from(state.restrictedUserIds)..remove(authorId);
+    state = state.copyWith(restrictedUserIds: newRestricted);
+    debugPrint('[UNRESTRICT_USER] author=$authorId unrestricted');
+
+    try {
+      await _apiClient.dio.delete('/posts/restrict/$authorId');
+      await fetchFeed(isRefresh: true);
+    } catch (e) {
+      debugPrint('[UNRESTRICT_USER] API error: $e');
+    }
   }
 }
 

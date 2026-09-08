@@ -6,6 +6,7 @@ if (Test-Path $envFile) {
         if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
             $k = $matches[1].Trim()
             $v = $matches[2].Trim()
+            [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
             $jvmArgs += "-D$k=$v"
         }
     }

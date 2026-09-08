@@ -137,7 +137,7 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
                   child: TextField(
                     controller: _searchController,
                     onChanged: (val) => ref.read(communityProvider.notifier).searchCommunities(val),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5),
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                     decoration: const InputDecoration(
                       hintText: 'Search my communities...',
                       hintStyle: TextStyle(

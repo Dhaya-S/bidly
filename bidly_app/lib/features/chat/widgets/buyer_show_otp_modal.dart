@@ -543,6 +543,8 @@ class _BuyerShowOtpModalState extends ConsumerState<BuyerShowOtpModal> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF004E54),
                           foregroundColor: Colors.white,
+                          disabledBackgroundColor: const Color(0xFF004E54),
+                          disabledForegroundColor: Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),

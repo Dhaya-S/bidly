@@ -50,6 +50,21 @@ import '../../features/chat/screens/seller_otp_verification_screen.dart';
 import '../../features/chat/screens/seller_otp_verified_screen.dart';
 import '../../features/chat/screens/product_sold_success_screen.dart';
 import '../../features/profile/screens/sale_summary_screen.dart';
+import '../../features/home/services/reels_controller_manager.dart';
+
+class _GlobalVideoPauseRouteObserver extends NavigatorObserver {
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    ReelsControllerManager().pauseAll();
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    ReelsControllerManager().pauseAll();
+  }
+}
 
 /// Placeholder screen for routes not yet implemented
 class PlaceholderScreen extends StatelessWidget {
@@ -81,6 +96,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: true,
+    observers: [_GlobalVideoPauseRouteObserver()],
     routes: [
       GoRoute(
         path: AppRoutes.splash,

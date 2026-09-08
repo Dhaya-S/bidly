@@ -124,6 +124,7 @@ class _RateBidlyScreenState extends State<RateBidlyScreen> {
               TextFormField(
                 controller: _reviewController,
                 maxLines: 5,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'Tell us what you love or what we can improve...',
                   alignLabelWithHint: true,

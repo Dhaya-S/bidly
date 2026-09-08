@@ -417,6 +417,23 @@ public class VideoProcessingService {
     }
 
     /**
+     * Fast extraction of a companion thumbnail poster without transcoding the video.
+     */
+    public boolean extractThumbnail(File inputFile, File thumbnailFile) {
+        if (!isAvailable() || inputFile == null || !inputFile.exists()) {
+            return false;
+        }
+        try {
+            ensureExecutablesAvailable();
+            generateThumbnail(inputFile, thumbnailFile, 1.0, 720, 1280);
+            return thumbnailFile.exists() && thumbnailFile.length() > 0;
+        } catch (Exception e) {
+            log.warn("[VIDEO_PROCESS] Fast thumbnail extraction failed: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Verifies that the MP4 file has fast-start metadata (the 'moov' atom appears in the leading bytes before 'mdat').
      */
     public boolean verifyFastStart(File mp4File) {

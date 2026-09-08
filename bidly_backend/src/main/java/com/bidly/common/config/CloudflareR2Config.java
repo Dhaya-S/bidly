@@ -46,10 +46,16 @@ public class CloudflareR2Config {
     /** S3Presigner for generating pre-signed upload/download URLs. */
     @Bean
     public S3Presigner s3Presigner() {
+        software.amazon.awssdk.services.s3.S3Configuration s3Config = software.amazon.awssdk.services.s3.S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .chunkedEncodingEnabled(false)
+                .build();
+
         return S3Presigner.builder()
                 .endpointOverride(r2Endpoint())
                 .credentialsProvider(credentials())
                 .region(Region.of("auto"))
+                .serviceConfiguration(s3Config)
                 .build();
     }
 

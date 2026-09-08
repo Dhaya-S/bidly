@@ -112,6 +112,7 @@ class _FeatureRequestScreenState extends State<FeatureRequestScreen> {
               const SizedBox(height: 6),
               TextFormField(
                 controller: _titleController,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'e.g. Dark mode for product listing',
                 ),
@@ -131,6 +132,7 @@ class _FeatureRequestScreenState extends State<FeatureRequestScreen> {
               TextFormField(
                 controller: _descriptionController,
                 maxLines: 5,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'Describe your feature idea and how it would help...',
                   alignLabelWithHint: true,

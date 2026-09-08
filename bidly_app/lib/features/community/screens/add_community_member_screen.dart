@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/constants/app_theme.dart';
 import '../models/community_model.dart';
 import '../providers/community_provider.dart';
 
@@ -221,7 +222,7 @@ class _AddCommunityMemberScreenState
             child: TextField(
               controller: _searchCtrl,
               onChanged: (val) => setState(() => _searchQuery = val),
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
               decoration: InputDecoration(
                 hintText: 'Search contacts…',
                 hintStyle: const TextStyle(fontFamily: 'Poppins', color: Color(0xFF94A3B8)),

@@ -7,7 +7,9 @@ import com.bidly.community.dto.CommunityMemberDto;
 import com.bidly.community.dto.CreateCommunityRequest;
 import com.bidly.community.entity.Community;
 import com.bidly.community.entity.CommunityMember;
+import com.bidly.community.entity.CommunityMute;
 import com.bidly.community.repository.CommunityMemberRepository;
+import com.bidly.community.repository.CommunityMuteRepository;
 import com.bidly.community.repository.CommunityRepository;
 import com.bidly.user.entity.User;
 import com.bidly.user.repository.UserRepository;
@@ -27,14 +29,17 @@ public class CommunityService {
 
     private final CommunityRepository communityRepository;
     private final CommunityMemberRepository memberRepository;
+    private final CommunityMuteRepository communityMuteRepository;
     private final UserRepository userRepository;
 
     public CommunityService(
             CommunityRepository communityRepository,
             CommunityMemberRepository memberRepository,
+            CommunityMuteRepository communityMuteRepository,
             UserRepository userRepository) {
         this.communityRepository = communityRepository;
         this.memberRepository = memberRepository;
+        this.communityMuteRepository = communityMuteRepository;
         this.userRepository = userRepository;
     }
 
@@ -43,13 +48,17 @@ public class CommunityService {
      */
     public List<CommunityDto> getMyCommunities(UUID userId) {
         if (userId == null) {
-            throw BidlyException.unauthorized("Authentication required to view your communities");
+            return Collections.emptyList();
         }
 
         List<CommunityMember> memberships = memberRepository.findByUserId(userId);
         if (memberships.isEmpty()) {
             return Collections.emptyList();
         }
+
+        Set<UUID> mutedCommunityIds = (userId != null)
+                ? communityMuteRepository.findMutedCommunityIdsByUserId(userId)
+                : Collections.emptySet();
 
         Map<UUID, String> roleMap = new HashMap<>();
         for (CommunityMember m : memberships) {
@@ -64,7 +73,7 @@ public class CommunityService {
                     if (role == null && c.getCreatedBy() != null && c.getCreatedBy().equals(userId)) {
                         role = "ADMIN";
                     }
-                    return mapToDto(c, role);
+                    return mapToDto(c, role, mutedCommunityIds.contains(c.getId()));
                 })
                 .sorted(Comparator.comparing(CommunityDto::getName))
                 .collect(Collectors.toList());
@@ -85,6 +94,10 @@ public class CommunityService {
                     .collect(Collectors.toList());
         }
 
+        Set<UUID> mutedCommunityIds = (userId != null)
+                ? communityMuteRepository.findMutedCommunityIdsByUserId(userId)
+                : Collections.emptySet();
+
         Map<UUID, String> userRoles = new HashMap<>();
         if (userId != null) {
             memberRepository.findByUserId(userId).forEach(m -> userRoles.put(m.getCommunityId(), m.getRole()));
@@ -96,7 +109,7 @@ public class CommunityService {
                     if (role == null && c.getCreatedBy() != null && userId != null && c.getCreatedBy().equals(userId)) {
                         role = "ADMIN";
                     }
-                    return mapToDto(c, role);
+                    return mapToDto(c, role, mutedCommunityIds.contains(c.getId()));
                 })
                 .collect(Collectors.toList());
     }
@@ -135,7 +148,7 @@ public class CommunityService {
 
         log.info("Created community '{}' ({}) by admin user {}", saved.getName(), saved.getId(), userId);
 
-        return mapToDto(saved, "ADMIN");
+        return mapToDto(saved, "ADMIN", false);
     }
 
     /**
@@ -155,7 +168,8 @@ public class CommunityService {
             }
         }
 
-        return mapToDto(community, role);
+        boolean isMuted = (userId != null) && communityMuteRepository.existsByUserIdAndCommunityId(userId, communityId);
+        return mapToDto(community, role, isMuted);
     }
 
     /**
@@ -334,10 +348,65 @@ public class CommunityService {
         }
 
         Community saved = communityRepository.save(community);
-        return mapToDto(saved, "ADMIN");
+        return mapToDto(saved, "ADMIN", false);
+    }
+
+    // ─── Notification Mute System ───
+
+    /**
+     * Toggles mute notifications for a community for the user.
+     */
+    @Transactional
+    public Map<String, Object> toggleMuteCommunity(UUID communityId, UUID userId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required to mute notifications");
+        }
+        communityRepository.findById(communityId)
+                .orElseThrow(() -> BidlyException.notFound("Community"));
+
+        boolean currentlyMuted = communityMuteRepository.existsByUserIdAndCommunityId(userId, communityId);
+        boolean nextMuted;
+        if (currentlyMuted) {
+            communityMuteRepository.deleteByUserIdAndCommunityId(userId, communityId);
+            nextMuted = false;
+        } else {
+            communityMuteRepository.save(new CommunityMute(userId, communityId));
+            nextMuted = true;
+        }
+        log.info("[COMMUNITY_MUTE_TOGGLE] user={} community={} muted={}", userId, communityId, nextMuted);
+        return Map.of("communityId", communityId.toString(), "muted", nextMuted);
+    }
+
+    @Transactional
+    public Map<String, Object> muteCommunity(UUID communityId, UUID userId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required to mute notifications");
+        }
+        communityRepository.findById(communityId)
+                .orElseThrow(() -> BidlyException.notFound("Community"));
+
+        if (!communityMuteRepository.existsByUserIdAndCommunityId(userId, communityId)) {
+            communityMuteRepository.save(new CommunityMute(userId, communityId));
+        }
+        log.info("[COMMUNITY_MUTE] user={} community={} muted=true", userId, communityId);
+        return Map.of("communityId", communityId.toString(), "muted", true);
+    }
+
+    @Transactional
+    public Map<String, Object> unmuteCommunity(UUID communityId, UUID userId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required to unmute notifications");
+        }
+        communityMuteRepository.deleteByUserIdAndCommunityId(userId, communityId);
+        log.info("[COMMUNITY_UNMUTE] user={} community={} muted=false", userId, communityId);
+        return Map.of("communityId", communityId.toString(), "muted", false);
     }
 
     private CommunityDto mapToDto(Community c, String userRole) {
+        return mapToDto(c, userRole, false);
+    }
+
+    private CommunityDto mapToDto(Community c, String userRole, boolean isMuted) {
         CommunityDto dto = new CommunityDto();
         dto.setId(c.getId());
         dto.setName(c.getName());
@@ -358,6 +427,7 @@ public class CommunityService {
         dto.setUserRole(userRole);
         dto.setAdmin("ADMIN".equalsIgnoreCase(userRole));
         dto.setJoined(userRole != null);
+        dto.setMuted(isMuted);
         dto.setUnreadCount(0);
 
         return dto;

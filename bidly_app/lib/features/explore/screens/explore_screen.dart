@@ -195,6 +195,12 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                                 child: TextField(
                                   controller: minPriceCtrl,
                                   keyboardType: TextInputType.number,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 14,
+                                    color: Color(0xFF0F172A),
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                   decoration: const InputDecoration(
                                     hintText: 'Min',
                                     hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Color(0xFF94A3B8)),
@@ -219,6 +225,12 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                                 child: TextField(
                                   controller: maxPriceCtrl,
                                   keyboardType: TextInputType.number,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 14,
+                                    color: Color(0xFF0F172A),
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                   decoration: const InputDecoration(
                                     hintText: 'Max',
                                     hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Color(0xFF94A3B8)),

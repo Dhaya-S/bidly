@@ -61,6 +61,7 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
   final ApiClient _apiClient;
   static const int _pageSize = 10;
   final Set<String> _inFlightLikes = {};
+  final Map<String, bool> _pendingTargetLikes = {};
   final Set<int> _requestedPages = {};
   final Set<int> _completedPages = {};
   static List<ListingModel> _cachedReels = [];
@@ -106,7 +107,7 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
     debugPrint('[REELS_REALTIME] Inserted newly created reel: ${newListing.title} (${newListing.id}) at index 0');
   }
 
-  /// Toggle or ensure like state. Optimistic update with in-flight deduplication and authoritative server confirmation.
+  /// Toggle or ensure like state. Optimistic update with pending intent queueing and authoritative server confirmation.
   Future<void> toggleLike(
     String listingId,
     int serverLikesCount, {
@@ -116,24 +117,16 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
     final currentlyLiked = state.isLiked(listingId, initialLiked);
     final currentCount = state.likesCount(listingId, serverLikesCount);
 
-    // If explicit target state is requested and already achieved, return immediately
+    final newLiked = targetLiked ?? !currentlyLiked;
     if (targetLiked != null && targetLiked == currentlyLiked) {
       return;
     }
 
-    // In-flight deduplication guard
-    if (_inFlightLikes.contains(listingId)) {
-      debugPrint('[LIKE_REQUEST] id=$listingId duplicate=in_flight_ignored');
-      return;
-    }
-    _inFlightLikes.add(listingId);
-
-    final newLiked = targetLiked ?? !currentlyLiked;
     final newCount = newLiked
         ? currentCount + 1
         : (currentCount > 0 ? currentCount - 1 : 0);
 
-    debugPrint('[LIKE_REEL] listing=$listingId action=${targetLiked != null ? (targetLiked ? "like" : "unlike") : "toggle"} optimistic=$newLiked count=$newCount');
+    debugPrint('[LIKE_REEL] listing=$listingId action=${newLiked ? "like" : "unlike"} optimistic=$newLiked count=$newCount');
 
     // Optimistic update — instant UI response
     final newLikedIds = Map<String, bool>.from(state.likedIds)
@@ -143,34 +136,60 @@ class ReelsNotifier extends StateNotifier<ReelsState> {
 
     state = state.copyWith(likedIds: newLikedIds, likesCounts: newLikesCounts);
 
-    try {
-      final actionParam = targetLiked != null ? (targetLiked ? 'like' : 'unlike') : null;
-      final url = actionParam != null
-          ? '/listings/$listingId/like?action=$actionParam'
-          : '/listings/$listingId/like';
-      final response = await _apiClient.dio.post(url);
+    // If already in-flight, queue this new target state and return immediately
+    if (_inFlightLikes.contains(listingId)) {
+      _pendingTargetLikes[listingId] = newLiked;
+      debugPrint('[LIKE_REEL] id=$listingId queued pending target: $newLiked');
+      return;
+    }
 
-      if (response.data != null && response.data['success'] == true) {
-        final data = response.data['data'] as Map<String, dynamic>?;
-        if (data != null) {
-          final serverLiked = data['isLikedByMe'] as bool? ?? data['likedByMe'] as bool? ?? data['liked'] as bool? ?? newLiked;
-          final serverCount = (data['likesCount'] as num?)?.toInt() ?? newCount;
-          debugPrint('[LIKE_REEL] listing=$listingId server=$serverLiked count=$serverCount');
-          final confirmedLikedIds = Map<String, bool>.from(state.likedIds)..[listingId] = serverLiked;
-          final confirmedCounts = Map<String, int>.from(state.likesCounts)..[listingId] = serverCount;
-          state = state.copyWith(likedIds: confirmedLikedIds, likesCounts: confirmedCounts);
+    _inFlightLikes.add(listingId);
+
+    try {
+      bool? nextDesired = newLiked;
+      while (nextDesired != null) {
+        final action = nextDesired ? 'like' : 'unlike';
+        final url = '/listings/$listingId/like?action=$action';
+        _pendingTargetLikes.remove(listingId);
+
+        final response = await _apiClient.dio.post(url);
+        if (response.data != null && response.data['success'] == true) {
+          final data = response.data['data'] as Map<String, dynamic>?;
+
+          // If another tap occurred while this HTTP call was in-flight, continue loop with newest intent
+          if (_pendingTargetLikes.containsKey(listingId)) {
+            nextDesired = _pendingTargetLikes[listingId];
+            continue;
+          }
+
+          if (data != null) {
+            final serverLiked = data['isLikedByMe'] as bool? ??
+                data['likedByMe'] as bool? ??
+                data['liked'] as bool? ??
+                nextDesired;
+            final serverCount = (data['likesCount'] as num?)?.toInt() ?? state.likesCount(listingId, newCount);
+            debugPrint('[LIKE_REEL] listing=$listingId server=$serverLiked count=$serverCount');
+
+            final confirmedLikedIds = Map<String, bool>.from(state.likedIds)..[listingId] = serverLiked;
+            final confirmedCounts = Map<String, int>.from(state.likesCounts)..[listingId] = serverCount;
+            state = state.copyWith(likedIds: confirmedLikedIds, likesCounts: confirmedCounts);
+          }
         }
+        nextDesired = _pendingTargetLikes.remove(listingId);
       }
     } catch (e) {
       debugPrint('[LIKE_REEL] listing=$listingId rollback=true error=$e');
-      final revertLikedIds = Map<String, bool>.from(state.likedIds)
-        ..[listingId] = currentlyLiked;
-      final revertCounts = Map<String, int>.from(state.likesCounts)
-        ..[listingId] = currentCount;
-      state = state.copyWith(
-          likedIds: revertLikedIds, likesCounts: revertCounts);
+      if (!_pendingTargetLikes.containsKey(listingId)) {
+        final revertLikedIds = Map<String, bool>.from(state.likedIds)
+          ..[listingId] = currentlyLiked;
+        final revertCounts = Map<String, int>.from(state.likesCounts)
+          ..[listingId] = currentCount;
+        state = state.copyWith(
+            likedIds: revertLikedIds, likesCounts: revertCounts);
+      }
     } finally {
       _inFlightLikes.remove(listingId);
+      _pendingTargetLikes.remove(listingId);
     }
   }
 

@@ -15,7 +15,10 @@ import java.util.UUID;
 public interface PostLikeRepository extends JpaRepository<PostLike, PostLike.PostLikeId> {
     boolean existsByUserIdAndPostId(UUID userId, UUID postId);
     Optional<PostLike> findByUserIdAndPostId(UUID userId, UUID postId);
-    void deleteByUserIdAndPostId(UUID userId, UUID postId);
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("DELETE FROM PostLike pl WHERE pl.userId = :userId AND pl.postId = :postId")
+    void deleteByUserIdAndPostId(@Param("userId") UUID userId, @Param("postId") UUID postId);
     long countByPostId(UUID postId);
 
     @Query("SELECT pl.postId FROM PostLike pl WHERE pl.userId = :userId AND pl.postId IN :postIds")

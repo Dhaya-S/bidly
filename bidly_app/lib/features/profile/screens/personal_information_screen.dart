@@ -197,7 +197,7 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
                 TextFormField(
                   controller: _nameController,
                   validator: (v) => v == null || v.trim().isEmpty ? 'Please enter your name' : null,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
                   decoration: const InputDecoration(
                     hintText: 'Enter your full name',
                   ),
@@ -210,7 +210,7 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
                 TextFormField(
                   controller: _phoneController,
                   validator: (v) => v == null || v.trim().isEmpty ? 'Please enter phone number' : null,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
                   decoration: const InputDecoration(
                     hintText: '+91 XXXXX XXXXX',
                   ),
@@ -290,7 +290,7 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
                 TextFormField(
                   controller: _addressController,
                   maxLines: 4,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14),
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
                   decoration: const InputDecoration(
                     hintText: 'Enter your address or locality...',
                     alignLabelWithHint: true,
@@ -307,6 +307,8 @@ class _PersonalInformationScreenState extends ConsumerState<PersonalInformationS
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primary,
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: AppTheme.primary,
+                      disabledForegroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),

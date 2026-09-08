@@ -69,9 +69,23 @@ public class AuctionSeedService {
                     .toList();
 
             for (Listing listing : auctionListings) {
+                boolean changed = false;
                 if (listing.getAuctionEndTime() == null) {
                     listing.setAuctionEndTime(Instant.now().plus(Duration.ofHours(24)));
                     listing.setStatus(Listing.ListingStatus.ACTIVE);
+                    changed = true;
+                }
+
+                int realBids = (int) bidRepository.countByListingIdAndStatusNot(listing.getId(), Bid.BidStatus.WITHDRAWN);
+                if (realBids != listing.getBidsCount()) {
+                    listing.setBidsCount(realBids);
+                    if (realBids == 0 && listing.getStartingBid() != null) {
+                        listing.setCurrentBid(listing.getStartingBid());
+                    }
+                    changed = true;
+                }
+
+                if (changed) {
                     listingRepository.save(listing);
                 }
             }

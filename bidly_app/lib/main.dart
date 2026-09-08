@@ -25,8 +25,8 @@ class BidlyApp extends ConsumerWidget {
 
       // ── Themes ──────────────────────────────────────────
       theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      darkTheme: AppTheme.light,
+      themeMode: ThemeMode.light,
 
       // ── Router ──────────────────────────────────────────
       routerConfig: router,

@@ -108,9 +108,11 @@ class ReelsControllerManager {
 
   int _globalTokenCounter = 0;
   int _currentActiveIndex = 0;
+  bool _isPaused = false;
 
   int get activeCount => _entries.values.where((e) => e.controller != null && !e.isStale).length;
   int get currentActiveIndex => _currentActiveIndex;
+  bool get isPaused => _isPaused;
 
   VideoPlayerController? getController(String listingId) => _entries[listingId]?.controller;
   ControllerEntry? getEntry(String listingId) => _entries[listingId];
@@ -152,6 +154,7 @@ class ReelsControllerManager {
 
   /// Updates current active page index, prunes distant controllers, and sets playback states.
   void setActiveIndex(int activeIndex, List<String> listingIds) {
+    _isPaused = false;
     final prevActive = _currentActiveIndex;
     _currentActiveIndex = activeIndex;
 
@@ -226,7 +229,7 @@ class ReelsControllerManager {
         debugPrint('[REEL_CONTROLLER] REUSE index=$itemIndex listing=$listingId state=${existingEntry.state}');
 
         final controller = existingEntry.controller!;
-        if (itemIndex == activeIndex || autoPlay) {
+        if ((itemIndex == activeIndex || autoPlay) && !_isPaused) {
           existingEntry.state = ControllerState.playing;
           controller.setLooping(true);
           controller.play();
@@ -368,7 +371,7 @@ class ReelsControllerManager {
       timing.markPlayerReady();
       entry.state = ControllerState.ready;
 
-      if (entry.itemIndex == _currentActiveIndex || autoPlay) {
+      if (!_isPaused && (entry.itemIndex == _currentActiveIndex || autoPlay)) {
         entry.state = ControllerState.playing;
         controller.play();
         timing.markPlayStart();
@@ -453,6 +456,7 @@ class ReelsControllerManager {
 
   /// Pauses all active video controllers immediately (when leaving Feed tab, switching subtabs, or backgrounding app).
   void pauseAll() {
+    _isPaused = true;
     debugPrint('[REEL_CONTROLLER] pauseAll() called');
     for (final entry in _entries.values) {
       final controller = entry.controller;
@@ -469,6 +473,7 @@ class ReelsControllerManager {
 
   /// Resumes playback of the current active Reel if on the Feed tab and initialized.
   void resumeCurrent() {
+    _isPaused = false;
     debugPrint('[REEL_CONTROLLER] resumeCurrent() for active index $_currentActiveIndex');
     for (final entry in _entries.values) {
       if (entry.itemIndex == _currentActiveIndex) {

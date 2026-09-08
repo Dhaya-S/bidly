@@ -543,7 +543,7 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
                 TextField(
                   controller: detailsController,
                   maxLines: 2,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: AppTheme.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Add more details (optional)...',
                     hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Color(0xFF94A3B8)),
@@ -594,6 +594,8 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF004E54),
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFF004E54),
+                      disabledForegroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -1372,6 +1374,8 @@ class _ReviewRatingScreenState extends ConsumerState<ReviewRatingScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF004E54),
                           foregroundColor: Colors.white,
+                          disabledBackgroundColor: const Color(0xFF004E54),
+                          disabledForegroundColor: Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),

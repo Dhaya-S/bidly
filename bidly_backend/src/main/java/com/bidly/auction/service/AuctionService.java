@@ -44,6 +44,7 @@ public class AuctionService {
     private final com.bidly.notification.service.NotificationService notificationService;
     private final com.bidly.chat.repository.ChatRoomRepository chatRoomRepository;
     private final com.bidly.chat.repository.ChatMessageRepository chatMessageRepository;
+    private final com.bidly.review.repository.ReviewRepository reviewRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     public AuctionService(
@@ -58,6 +59,7 @@ public class AuctionService {
             com.bidly.notification.service.NotificationService notificationService,
             com.bidly.chat.repository.ChatRoomRepository chatRoomRepository,
             com.bidly.chat.repository.ChatMessageRepository chatMessageRepository,
+            com.bidly.review.repository.ReviewRepository reviewRepository,
             SimpMessagingTemplate messagingTemplate) {
         this.listingRepository = listingRepository;
         this.bidRepository = bidRepository;
@@ -70,6 +72,7 @@ public class AuctionService {
         this.notificationService = notificationService;
         this.chatRoomRepository = chatRoomRepository;
         this.chatMessageRepository = chatMessageRepository;
+        this.reviewRepository = reviewRepository;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -320,8 +323,22 @@ public class AuctionService {
             dto.setImageUrls(Collections.emptyList());
         }
 
+        int totalBids = (int) bidRepository.countByListingIdAndStatusNot(listingId, Bid.BidStatus.WITHDRAWN);
+        dto.setTotalBids(totalBids);
+        dto.setWatchingCount((int) listing.getViewsCount());
+
+        // Highest Bidder Info (Active or Won bid)
+        Optional<Bid> highestBidOpt = bidRepository.findFirstByListingIdAndStatusInOrderByAmountDescCreatedAtDesc(
+                listingId, List.of(Bid.BidStatus.ACTIVE, Bid.BidStatus.WON));
+        if (highestBidOpt.isPresent()) {
+            Bid topBid = highestBidOpt.get();
+            dto.setHighestBidderId(topBid.getBidder().getId());
+            dto.setHighestBidderName(topBid.getBidder().getName() != null ? topBid.getBidder().getName() : "");
+            dto.setHighestBidderTime(getRelativeTime(topBid.getCreatedAt()));
+        }
+
         BigDecimal startingBid = listing.getStartingBid() != null ? listing.getStartingBid() : listing.getPrice();
-        BigDecimal currentBid = listing.getCurrentBid() != null ? listing.getCurrentBid() : startingBid;
+        BigDecimal currentBid = highestBidOpt.map(Bid::getAmount).orElse(startingBid);
         BigDecimal minIncrement = listing.getBidIncrement() != null ? listing.getBidIncrement() : BigDecimal.valueOf(500.00);
         BigDecimal minNextBid = currentBid != null ? currentBid.add(minIncrement) : minIncrement;
 
@@ -339,22 +356,8 @@ public class AuctionService {
         dto.setSecondsRemaining(secondsLeft);
         dto.setTimeLeftFormatted(formatSecondsToHuman(secondsLeft));
 
-        int totalBids = (int) bidRepository.countByListingIdAndStatusNot(listingId, Bid.BidStatus.WITHDRAWN);
-        dto.setTotalBids(totalBids);
-        dto.setWatchingCount((int) listing.getViewsCount());
-
         dto.setStatus(listing.getStatus().name());
         dto.setAuctionEnded(secondsLeft <= 0 || listing.getStatus() != Listing.ListingStatus.ACTIVE);
-
-        // Highest Bidder Info (Active or Won bid)
-        Optional<Bid> highestBidOpt = bidRepository.findFirstByListingIdAndStatusInOrderByAmountDescCreatedAtDesc(
-                listingId, List.of(Bid.BidStatus.ACTIVE, Bid.BidStatus.WON));
-        if (highestBidOpt.isPresent()) {
-            Bid topBid = highestBidOpt.get();
-            dto.setHighestBidderId(topBid.getBidder().getId());
-            dto.setHighestBidderName(topBid.getBidder().getName() != null ? topBid.getBidder().getName() : "");
-            dto.setHighestBidderTime(getRelativeTime(topBid.getCreatedAt()));
-        }
 
         // Current User Bid Status
         if (currentUserId != null) {
@@ -386,8 +389,14 @@ public class AuctionService {
             User seller = listing.getSeller();
             dto.setSellerId(seller.getId());
             dto.setSellerName(seller.getName() != null ? seller.getName() : "");
-            dto.setSellerRating(listing.getRating() != null ? listing.getRating() : 0.0);
-            dto.setSellerReviewsCount(0);
+
+            List<com.bidly.review.entity.Review> sellerReviews = reviewRepository.findBySellerIdOrderByCreatedAtDesc(seller.getId());
+            double avgRating = sellerReviews.isEmpty()
+                    ? (listing.getRating() != null ? listing.getRating() : 0.0)
+                    : sellerReviews.stream().mapToInt(com.bidly.review.entity.Review::getRating).average().orElse(0.0);
+
+            dto.setSellerRating(Math.round(avgRating * 10.0) / 10.0);
+            dto.setSellerReviewsCount(sellerReviews.size());
             dto.setSellerSalesCount((int) listingRepository.countBySellerIdAndStatus(seller.getId(), Listing.ListingStatus.SOLD));
         }
         dto.setCity(listing.getCity() != null ? listing.getCity() : "");
@@ -432,14 +441,19 @@ public class AuctionService {
         AuctionLiveStatusDto dto = new AuctionLiveStatusDto();
         dto.setListingId(listing.getId());
 
+        int totalBids = (int) bidRepository.countByListingIdAndStatusNot(listingId, Bid.BidStatus.WITHDRAWN);
+        dto.setTotalBids(totalBids);
+        dto.setWatchingCount((int) listing.getViewsCount());
+
+        Optional<Bid> highestBidOpt = bidRepository.findFirstByListingIdAndStatusInOrderByAmountDescCreatedAtDesc(
+                listingId, List.of(Bid.BidStatus.ACTIVE, Bid.BidStatus.WON));
+
         BigDecimal startingBid = listing.getStartingBid() != null ? listing.getStartingBid() : listing.getPrice();
-        BigDecimal currentBid = listing.getCurrentBid() != null ? listing.getCurrentBid() : startingBid;
+        BigDecimal currentBid = highestBidOpt.map(Bid::getAmount).orElse(startingBid);
         BigDecimal minIncrement = listing.getBidIncrement() != null ? listing.getBidIncrement() : BigDecimal.valueOf(500.00);
 
         dto.setCurrentHighestBid(currentBid != null ? currentBid : BigDecimal.ZERO);
         dto.setMinNextBid(currentBid != null ? currentBid.add(minIncrement) : minIncrement);
-        dto.setTotalBids((int) bidRepository.countByListingIdAndStatusNot(listingId, Bid.BidStatus.WITHDRAWN));
-        dto.setWatchingCount((int) listing.getViewsCount());
 
         Instant now = Instant.now();
         long secondsLeft = 0;
@@ -452,8 +466,6 @@ public class AuctionService {
         dto.setAuctionEnded(secondsLeft <= 0 || listing.getStatus() != Listing.ListingStatus.ACTIVE);
         dto.setServerTimestamp(Instant.now());
 
-        Optional<Bid> highestBidOpt = bidRepository.findFirstByListingIdAndStatusInOrderByAmountDescCreatedAtDesc(
-                listingId, List.of(Bid.BidStatus.ACTIVE, Bid.BidStatus.WON));
         if (highestBidOpt.isPresent()) {
             Bid topBid = highestBidOpt.get();
             dto.setHighestBidderId(topBid.getBidder().getId());

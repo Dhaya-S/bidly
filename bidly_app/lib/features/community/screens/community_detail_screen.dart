@@ -1,13 +1,17 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_theme.dart';
+import '../../../core/widgets/bidly_snackbar.dart';
 import '../models/community_model.dart';
 import '../providers/community_provider.dart';
+import '../../../core/providers/live_location_provider.dart';
 import '../../sell/providers/sell_provider.dart';
 import 'manage_community_screen.dart';
 import 'community_reels_screen.dart';
@@ -32,6 +36,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   void initState() {
     super.initState();
     Future.microtask(() {
+      ref.read(communityProvider.notifier).fetchCommunity(widget.community.id);
       ref.read(communityProvider.notifier).fetchMembers(widget.community.id);
       _loadRealPosts();
     });
@@ -39,7 +44,12 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
 
   Future<void> _loadRealPosts() async {
     setState(() => _isLoadingPosts = true);
-    final posts = await ref.read(communityProvider.notifier).fetchCommunityPosts(widget.community.id);
+    final userLoc = ref.read(liveLocationProvider);
+    final posts = await ref.read(communityProvider.notifier).fetchCommunityPosts(
+      widget.community.id,
+      latitude: userLoc.latitude,
+      longitude: userLoc.longitude,
+    );
     if (mounted) {
       setState(() {
         _communityPosts.clear();
@@ -47,6 +57,61 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
         _isLoadingPosts = false;
       });
     }
+  }
+
+  void _handleHidePost(String postId) {
+    final originalIndex = _communityPosts.indexWhere((p) => p['id']?.toString() == postId);
+    if (originalIndex == -1) return;
+    final removedPost = _communityPosts[originalIndex];
+
+    setState(() {
+      _communityPosts.removeAt(originalIndex);
+    });
+
+    try {
+      ref.read(apiClientProvider).dio.post('/posts/$postId/hide');
+    } catch (_) {}
+
+    BidlySnackBar.showUndo(
+      context: context,
+      message: 'Post hidden from your feed',
+      icon: Icons.visibility_off_outlined,
+      onUndo: () {
+        setState(() {
+          _communityPosts.insert(originalIndex, removedPost);
+        });
+        try {
+          ref.read(apiClientProvider).dio.delete('/posts/$postId/hide');
+        } catch (_) {}
+      },
+    );
+  }
+
+  void _handleRestrictUser(String authorId, String authorName) {
+    if (authorId.isEmpty) return;
+    final removedPosts = _communityPosts.where((p) => p['authorId']?.toString() == authorId).toList();
+
+    setState(() {
+      _communityPosts.removeWhere((p) => p['authorId']?.toString() == authorId);
+    });
+
+    try {
+      ref.read(apiClientProvider).dio.post('/posts/restrict/$authorId');
+    } catch (_) {}
+
+    BidlySnackBar.showUndo(
+      context: context,
+      message: 'Restricted $authorName. Posts hidden.',
+      icon: Icons.block_rounded,
+      onUndo: () {
+        setState(() {
+          _communityPosts.addAll(removedPosts);
+        });
+        try {
+          ref.read(apiClientProvider).dio.delete('/posts/restrict/$authorId');
+        } catch (_) {}
+      },
+    );
   }
 
   void _confirmLeaveCommunity(CommunityModel community) {
@@ -196,9 +261,14 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final commState = ref.watch(communityProvider);
-    final match = commState.communities.firstWhere(
+    final match = commState.myCommunities.firstWhere(
       (c) => c.id == widget.community.id,
-      orElse: () => widget.community,
+      orElse: () => commState.communities.firstWhere(
+        (c) => c.id == widget.community.id,
+        orElse: () => commState.selectedCommunity?.id == widget.community.id
+            ? commState.selectedCommunity!
+            : widget.community,
+      ),
     );
     final community = match;
     final isAdmin = community.isAdmin || community.userRole == 'ADMIN';
@@ -208,11 +278,13 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 0,
+        elevation: 0.5,
+        shadowColor: const Color(0xFFE2E8F0),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Color(0xFF1E232A)),
+          icon: const Icon(Icons.arrow_back, size: 24, color: Color(0xFF0F172A)),
           onPressed: () => Navigator.pop(context),
         ),
+        titleSpacing: 0,
         title: InkWell(
           onTap: () {
             Navigator.of(context).push(
@@ -224,42 +296,44 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
           borderRadius: BorderRadius.circular(10),
           child: Row(
             children: [
-              (community.iconUrl != null && community.iconUrl!.isNotEmpty)
-                  ? CircleAvatar(
-                      radius: 18,
-                      backgroundImage: CachedNetworkImageProvider(
-                        ApiClient.resolveMediaUrl(community.iconUrl!),
-                      ),
-                    )
-                  : Container(
-                      width: 38,
-                      height: 38,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEEF2FF),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          _getInitials(community.name),
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF4F46E5),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE6F4F1),
+                  shape: BoxShape.circle,
+                ),
+                child: (community.iconUrl != null && community.iconUrl!.isNotEmpty)
+                    ? ClipOval(
+                        child: CachedNetworkImage(
+                          imageUrl: ApiClient.resolveMediaUrl(community.iconUrl!),
+                          width: 40,
+                          height: 40,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => const Icon(
+                            Icons.groups_rounded,
+                            color: Color(0xFF0F172A),
+                            size: 22,
                           ),
                         ),
+                      )
+                    : const Icon(
+                        Icons.groups_rounded,
+                        color: Color(0xFF0F172A),
+                        size: 22,
                       ),
-                    ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       community.name,
                       style: const TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 14.5,
+                        fontSize: 15.5,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
@@ -270,8 +344,8 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                       '${community.membersCount > 0 ? _formatCurrency(community.membersCount) : '1'} members',
                       style: const TextStyle(
                         fontFamily: 'Poppins',
-                        fontSize: 11.5,
-                        color: Color(0xFF64748B),
+                        fontSize: 12,
+                        color: Color(0xFF94A3B8),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -282,178 +356,104 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
           ),
         ),
         actions: [
-          // If non-member, show + Join pill button matching Screen 3 UI
-          if (!isJoined)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 6.0),
-                child: InkWell(
-                  onTap: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    final ok = await ref.read(communityProvider.notifier).joinCommunity(community.id);
-                    if (mounted && ok) {
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Text('Joined ${community.name}! You can now view details, make offers, and bid.'),
-                          backgroundColor: const Color(0xFF004E54),
-                        ),
-                      );
-                      ref.read(communityProvider.notifier).fetchMembers(community.id);
-                      _loadRealPosts();
-                    }
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6.5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4F46E5), // Vibrant Indigo/Purple pill like UI image
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_rounded, size: 16, color: Colors.white),
-                        SizedBox(width: 3),
-                        Text(
-                          'Join',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
+          IconButton(
+            icon: const Icon(Icons.group_outlined, color: Color(0xFF0F172A), size: 24),
+            tooltip: 'Community Members',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ManageCommunityScreen(community: community),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: Icon(
+              community.isMuted
+                  ? Icons.notifications_off_outlined
+                  : Icons.notifications_none_rounded,
+              color: community.isMuted ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+              size: 24,
+            ),
+            tooltip: community.isMuted ? 'Unmute Notifications' : 'Mute Notifications',
+            onPressed: () => _toggleMute(community),
+          ),
+          Theme(
+            data: Theme.of(context).copyWith(
+              highlightColor: Colors.transparent,
+              splashColor: Colors.transparent,
+            ),
+            child: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF0F172A), size: 24),
+              color: Colors.white,
+              elevation: 8,
+              shadowColor: Colors.black.withValues(alpha: 0.18),
+              surfaceTintColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              offset: const Offset(0, 48),
+              onSelected: (val) {
+                if (val == 'list_product') {
+                  if (isJoined) {
+                    _navigateToSell(community);
+                  } else {
+                    _showJoinToInteractModal(community);
+                  }
+                } else if (val == 'mute_toggle') {
+                  _toggleMute(community);
+                } else if (val == 'leave') {
+                  _confirmLeaveCommunity(community);
+                }
+              },
+              itemBuilder: (ctx) => [
+                const PopupMenuItem<String>(
+                  value: 'list_product',
+                  height: 48,
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'List your product',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF0F172A),
                     ),
                   ),
                 ),
-              ),
-            )
-          else
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 4.0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE6F4F1),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                PopupMenuItem<String>(
+                  value: 'mute_toggle',
+                  height: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
-                    isAdmin ? 'Admin' : 'Joined',
+                    community.isMuted ? 'Unmute Notification' : 'Mute Notification',
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF004E54),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF0F172A),
                     ),
                   ),
                 ),
-              ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.search_rounded, color: Color(0xFF1E232A), size: 22),
-            onPressed: () {
-              // Search or filter community posts
-            },
-          ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF1E232A), size: 22),
-            color: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            onSelected: (val) {
-              if (val == 'manage') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ManageCommunityScreen(community: community),
-                  ),
-                );
-              } else if (val == 'add_post') {
-                if (isJoined) {
-                  _navigateToSell(community);
-                } else {
-                  _showJoinToInteractModal(community);
-                }
-              } else if (val == 'leave') {
-                _confirmLeaveCommunity(community);
-              } else if (val == 'rules') {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    title: const Text('Community Rules'),
-                    content: Text(community.rules?.isNotEmpty == true ? community.rules! : '1. Be respectful\n2. No spam\n3. Genuine items only'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-                    ],
-                  ),
-                );
-              } else if (val == 'share') {
-                Share.share('Join ${community.name} on Bidly: Find trusted local deals!');
-              }
-            },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'manage',
-                child: Row(
-                  children: [
-                    Icon(Icons.manage_accounts_outlined, size: 18, color: Color(0xFF004E54)),
-                    SizedBox(width: 10),
-                    Text('Manage Community'),
-                  ],
-                ),
-              ),
-              if (isJoined)
-                const PopupMenuItem(
-                  value: 'add_post',
-                  child: Row(
-                    children: [
-                      Icon(Icons.post_add_rounded, size: 18, color: Color(0xFF004E54)),
-                      SizedBox(width: 10),
-                      Text('Post in Community'),
-                    ],
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'rules',
-                child: Row(
-                  children: [
-                    Icon(Icons.rule_folder_outlined, size: 18, color: Color(0xFF004E54)),
-                    SizedBox(width: 10),
-                    Text('Rules & Info'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'share',
-                child: Row(
-                  children: [
-                    Icon(Icons.share_outlined, size: 18, color: Color(0xFF004E54)),
-                    SizedBox(width: 10),
-                    Text('Share Community'),
-                  ],
-                ),
-              ),
-              if (isJoined && !isAdmin)
-                const PopupMenuItem(
+                const PopupMenuDivider(height: 1),
+                const PopupMenuItem<String>(
                   value: 'leave',
-                  child: Row(
-                    children: [
-                      Icon(Icons.exit_to_app_rounded, size: 18, color: Color(0xFFE11D48)),
-                      SizedBox(width: 10),
-                      Text('Leave Community', style: TextStyle(color: Color(0xFFE11D48), fontWeight: FontWeight.w600)),
-                    ],
+                  height: 48,
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Leave Community',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFFEF4444),
+                    ),
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
+          const SizedBox(width: 4),
         ],
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
@@ -552,7 +552,18 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                       itemCount: _communityPosts.length,
                       itemBuilder: (context, index) {
                         final post = _communityPosts[index];
-                        return _buildPostCard(post, isJoined: isJoined, community: community);
+                        return _CommunityPostCardItem(
+                          post: post,
+                          allPosts: _communityPosts,
+                          isJoined: isJoined,
+                          community: community,
+                          onLike: (postId, action) => ref.read(communityProvider.notifier).likePost(postId, action: action),
+                          onShare: (postId) => ref.read(communityProvider.notifier).sharePost(postId),
+                          onContact: (seller, title) => _showContactSheet(seller, title),
+                          onJoinPrompt: () => _showJoinToInteractModal(community),
+                          onHide: _handleHidePost,
+                          onRestrict: _handleRestrictUser,
+                        );
                       },
                     ),
                   ),
@@ -656,6 +667,348 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     return '$remaining$buffer,$last3';
   }
 
+
+  Future<void> _toggleMute(CommunityModel community) async {
+    final newMuted = await ref.read(communityProvider.notifier).toggleMuteCommunity(community.id);
+    if (!mounted) return;
+
+    BidlySnackBar.showUndo(
+      context: context,
+      message: newMuted
+          ? 'Notifications muted for ${community.name}'
+          : 'Notifications turned on for ${community.name}',
+      icon: newMuted ? Icons.notifications_off_rounded : Icons.notifications_active_rounded,
+      onUndo: () {
+        ref.read(communityProvider.notifier).toggleMuteCommunity(community.id);
+      },
+    );
+  }
+
+}
+
+class _CommunityPostCardItem extends StatefulWidget {
+  final Map<String, dynamic> post;
+  final List<Map<String, dynamic>> allPosts;
+  final bool isJoined;
+  final CommunityModel community;
+  final Future<Map<String, dynamic>?> Function(String postId, String action) onLike;
+  final Future<int?> Function(String postId) onShare;
+  final void Function(String sellerName, String productTitle) onContact;
+  final VoidCallback onJoinPrompt;
+  final void Function(String postId)? onHide;
+  final void Function(String authorId, String authorName)? onRestrict;
+
+  const _CommunityPostCardItem({
+    required this.post,
+    required this.allPosts,
+    required this.isJoined,
+    required this.community,
+    required this.onLike,
+    required this.onShare,
+    required this.onContact,
+    required this.onJoinPrompt,
+    this.onHide,
+    this.onRestrict,
+  });
+
+  @override
+  State<_CommunityPostCardItem> createState() => _CommunityPostCardItemState();
+}
+
+class _CommunityPostCardItemState extends State<_CommunityPostCardItem> with TickerProviderStateMixin, WidgetsBindingObserver {
+  late PageController _pageController;
+  int _currentMediaIndex = 0;
+
+  VideoPlayerController? _videoController;
+  bool _isVideoInitialized = false;
+  bool _isInitializingVideo = false;
+  bool _isMuted = true;
+  bool _showHeartBurst = false;
+
+  late AnimationController _heartAnimController;
+  late Animation<double> _heartScaleAnim;
+  late Animation<double> _heartOpacityAnim;
+
+  late AnimationController _likeButtonAnimController;
+  late Animation<double> _likeButtonScaleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _pageController = PageController();
+
+    _heartAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+
+    _heartScaleAnim = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3).chain(CurveTween(curve: Curves.elasticOut)), weight: 60),
+      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 20),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeInBack)), weight: 20),
+    ]).animate(_heartAnimController);
+
+    _heartOpacityAnim = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(_heartAnimController);
+
+    _heartAnimController.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        setState(() => _showHeartBurst = false);
+      }
+    });
+
+    _likeButtonAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: 1.0,
+    );
+
+    _likeButtonScaleAnim = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.35).chain(CurveTween(curve: Curves.easeOutCubic)), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.35, end: 0.9).chain(CurveTween(curve: Curves.easeInCubic)), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 30),
+    ]).animate(_likeButtonAnimController);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndInitVideoForSlide(0);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _videoController?.pause();
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _CommunityPostCardItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.post['id'] != widget.post['id']) {
+      _disposeVideo();
+      _currentMediaIndex = 0;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkAndInitVideoForSlide(0);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _disposeVideo();
+    _pageController.dispose();
+    _heartAnimController.dispose();
+    _likeButtonAnimController.dispose();
+    super.dispose();
+  }
+
+  void _disposeVideo() {
+    if (_videoController != null) {
+      _videoController!.pause();
+      _videoController!.dispose();
+      _videoController = null;
+      _isVideoInitialized = false;
+      _isInitializingVideo = false;
+    }
+  }
+
+  List<Map<String, dynamic>> _getMediaList() {
+    final rawMediaItems = widget.post['mediaItems'] as List?;
+    final List<Map<String, dynamic>> mediaList = [];
+    if (rawMediaItems != null && rawMediaItems.isNotEmpty) {
+      for (final item in rawMediaItems) {
+        if (item is Map) {
+          mediaList.add(Map<String, dynamic>.from(item));
+        }
+      }
+    }
+    if (mediaList.isEmpty) {
+      final img = widget.post['imageUrl'] as String?;
+      final vid = widget.post['videoUrl'] as String? ?? widget.post['reelUrl'] as String?;
+      if (img != null && img.isNotEmpty) {
+        mediaList.add({'url': img, 'type': 'IMAGE'});
+      }
+      if (vid != null && vid.isNotEmpty) {
+        mediaList.add({'url': vid, 'type': 'VIDEO'});
+      }
+    }
+    return mediaList;
+  }
+
+  void _checkAndInitVideoForSlide(int index) {
+    final mediaList = _getMediaList();
+    if (index < 0 || index >= mediaList.length) {
+      _disposeVideo();
+      return;
+    }
+    final item = mediaList[index];
+    final isVideo = (item['type'] == 'VIDEO' || item['type']?.toString().toUpperCase() == 'VIDEO');
+    final url = item['url']?.toString() ?? '';
+    if (isVideo && url.isNotEmpty) {
+      _initializeVideo(url);
+    } else {
+      _disposeVideo();
+    }
+  }
+
+  Future<void> _initializeVideo(String rawUrl) async {
+    _disposeVideo();
+    final resolvedUrl = ApiClient.resolveMediaUrl(rawUrl);
+    if (mounted) setState(() => _isInitializingVideo = true);
+
+    try {
+      final controller = VideoPlayerController.networkUrl(Uri.parse(resolvedUrl));
+      await controller.initialize();
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      controller.setLooping(true);
+      controller.setVolume(_isMuted ? 0.0 : 1.0);
+      final isCurrentRoute = ModalRoute.of(context)?.isCurrent == true;
+      if (isCurrentRoute) {
+        controller.play();
+      } else {
+        controller.pause();
+      }
+
+      if (mounted) {
+        setState(() {
+          _videoController = controller;
+          _isVideoInitialized = true;
+          _isInitializingVideo = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isInitializingVideo = false;
+          _isVideoInitialized = false;
+        });
+      }
+      debugPrint('[CommunityPostCard] Failed to init video: $e');
+    }
+  }
+
+  void _togglePlayPause() {
+    if (_videoController != null && _isVideoInitialized) {
+      setState(() {
+        if (_videoController!.value.isPlaying) {
+          _videoController!.pause();
+        } else {
+          _videoController!.play();
+        }
+      });
+    }
+  }
+
+  void _toggleMute() {
+    if (_videoController != null && _isVideoInitialized) {
+      final newMuted = !_isMuted;
+      _videoController!.setVolume(newMuted ? 0.0 : 1.0);
+      setState(() => _isMuted = newMuted);
+    }
+  }
+
+  void _triggerDoubleTapHeart() {
+    HapticFeedback.mediumImpact();
+    setState(() => _showHeartBurst = true);
+    _heartAnimController.forward(from: 0.0);
+
+    final isLiked = widget.post['isLiked'] as bool? ?? false;
+    if (!isLiked) {
+      _handleLikeTap();
+    }
+  }
+
+  void _handleLikeTap() async {
+    final isLiked = widget.post['isLiked'] as bool? ?? false;
+    final likesCount = widget.post['likesCount'] as int? ?? 0;
+    final nextLiked = !isLiked;
+
+    if (nextLiked) {
+      HapticFeedback.mediumImpact();
+      _likeButtonAnimController.forward(from: 0.0);
+    } else {
+      HapticFeedback.lightImpact();
+      _likeButtonAnimController.forward(from: 0.0);
+    }
+
+    setState(() {
+      widget.post['isLiked'] = nextLiked;
+      widget.post['likesCount'] = nextLiked ? (likesCount + 1) : (likesCount > 0 ? likesCount - 1 : 0);
+    });
+
+    final result = await widget.onLike(
+      widget.post['id'] as String,
+      nextLiked ? 'like' : 'unlike',
+    );
+    if (result != null && mounted) {
+      setState(() {
+        if (result['liked'] != null) widget.post['isLiked'] = result['liked'];
+        if (result['likesCount'] != null) widget.post['likesCount'] = result['likesCount'];
+      });
+    }
+  }
+
+  void _openFullReelScreen() {
+    _videoController?.pause();
+    _disposeVideo();
+    final currentIndex = widget.allPosts.indexOf(widget.post);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CommunityReelsScreen(
+          community: widget.community,
+          posts: widget.allPosts,
+          initialIndex: currentIndex >= 0 ? currentIndex : 0,
+        ),
+      ),
+    ).then((_) {
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        _checkAndInitVideoForSlide(_currentMediaIndex);
+      }
+    });
+  }
+
+  String _getInitials(String name) {
+    if (name.trim().isEmpty) return 'U';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length == 1) {
+      return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
+    }
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+
+  String _formatCurrency(dynamic amount) {
+    if (amount == null) return '0';
+    num val = 0;
+    if (amount is num) {
+      val = amount;
+    } else {
+      val = num.tryParse(amount.toString().replaceAll(RegExp(r'[^\d.]'), '')) ?? 0;
+    }
+    final str = val.toInt().toString();
+    final len = str.length;
+    if (len <= 3) return str;
+    final last3 = str.substring(len - 3);
+    String remaining = str.substring(0, len - 3);
+    final buffer = StringBuffer();
+    while (remaining.length > 2) {
+      buffer.write(',${remaining.substring(remaining.length - 2)}');
+      remaining = remaining.substring(0, remaining.length - 2);
+    }
+    return '$remaining$buffer,$last3';
+  }
+
   String _formatTimeRemaining(String? auctionEndTime) {
     if (auctionEndTime == null || auctionEndTime.isEmpty) return '2h 14m';
     try {
@@ -677,20 +1030,11 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     }
   }
 
-  String _getInitials(String name) {
-    if (name.trim().isEmpty) return 'U';
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.length == 1) {
-      return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
-    }
-    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-  }
-
-  Widget _buildAuctionInfoCard(Map<String, dynamic> post) {
-    final currentBidVal = post['currentBid'] ?? post['startingBid'] ?? post['price'];
+  Widget _buildAuctionInfoCard() {
+    final currentBidVal = widget.post['currentBid'] ?? widget.post['startingBid'] ?? widget.post['price'];
     final currentBidFormatted = _formatCurrency(currentBidVal);
-    final bidsCount = post['bidsCount'] as int? ?? 0;
-    final timeRemaining = _formatTimeRemaining(post['auctionEndTime'] as String?);
+    final bidsCount = widget.post['bidsCount'] as int? ?? 0;
+    final timeRemaining = _formatTimeRemaining(widget.post['auctionEndTime'] as String?);
 
     return Container(
       margin: const EdgeInsets.only(top: 14),
@@ -766,8 +1110,8 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
   }
 
-  Widget _buildDirectBuyInfoCard(Map<String, dynamic> post) {
-    final priceVal = post['price'] ?? post['priceText'];
+  Widget _buildDirectBuyInfoCard() {
+    final priceVal = widget.post['price'] ?? widget.post['priceText'];
     final priceFormatted = _formatCurrency(priceVal);
 
     return Container(
@@ -834,7 +1178,149 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
   }
 
-  Widget _buildPostCard(Map<String, dynamic> post, {required bool isJoined, required CommunityModel community}) {
+  Widget _buildMediaSlide(Map<String, dynamic> item, int index) {
+    final isVideo = (item['type'] == 'VIDEO' || item['type']?.toString().toUpperCase() == 'VIDEO');
+    final url = item['url']?.toString() ?? '';
+
+    if (isVideo) {
+      if (_videoController != null && _isVideoInitialized) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _togglePlayPause,
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _videoController!.value.size.width,
+                  height: _videoController!.value.size.height,
+                  child: VideoPlayer(_videoController!),
+                ),
+              ),
+            ),
+            // Paused Icon Overlay
+            if (!_videoController!.value.isPlaying)
+              Center(
+                child: GestureDetector(
+                  onTap: _togglePlayPause,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 34,
+                    ),
+                  ),
+                ),
+              ),
+            // Mute / Unmute Button
+            Positioned(
+              bottom: 12,
+              right: 12,
+              child: GestureDetector(
+                onTap: _toggleMute,
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      } else {
+        return Container(
+          color: Colors.black,
+          child: Center(
+            child: _isInitializingVideo && index == _currentMediaIndex
+                ? const SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF004E54)),
+                    ),
+                  )
+                : GestureDetector(
+                    onTap: () => _checkAndInitVideoForSlide(index),
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.play_circle_outline_rounded, color: Colors.white70, size: 52),
+                        SizedBox(height: 6),
+                        Text(
+                          'Tap to play Reel',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        );
+      }
+    }
+
+    return CachedNetworkImage(
+      imageUrl: ApiClient.resolveMediaUrl(url),
+      fit: BoxFit.cover,
+      placeholder: (context, url) => Container(
+        color: const Color(0xFFF1F5F9),
+        child: const Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: Color(0xFF004E54),
+          ),
+        ),
+      ),
+      errorWidget: (context, url, error) => Container(
+        color: const Color(0xFFF1F5F9),
+        child: const Center(
+          child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF94A3B8), size: 36),
+        ),
+      ),
+    );
+  }
+
+  String _formatLocationBadge(Map<String, dynamic> post) {
+    final double? dist = (post['distanceKm'] as num?)?.toDouble();
+    final locality = post['locality'] as String?;
+    final city = post['city'] as String?;
+    final loc = locality?.trim().isNotEmpty == true
+        ? locality!.trim()
+        : (city?.trim().isNotEmpty == true ? city!.trim() : null);
+
+    if (dist != null && dist > 0) {
+      final distStr = dist < 0.1 ? '< 0.1 km' : '${dist.toStringAsFixed(1)} km';
+      if (loc != null) {
+        return '$loc · $distStr';
+      }
+      return distStr;
+    }
+    if (loc != null) return loc;
+    return 'Nearby';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final post = widget.post;
     final isAuction = post['sellingMethod'] == 'AUCTION';
     final isLiked = post['isLiked'] as bool? ?? false;
     final likesCount = post['likesCount'] as int? ?? 0;
@@ -842,7 +1328,13 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     final title = post['title'] as String? ?? '';
     final priceText = post['priceText'] as String? ?? '';
     final description = post['description'] as String? ?? '';
-    final distanceKm = (post['distanceKm'] as num?)?.toDouble() ?? 2.0;
+
+    final mediaList = _getMediaList();
+    final currentItem = (mediaList.isNotEmpty && _currentMediaIndex < mediaList.length)
+        ? mediaList[_currentMediaIndex]
+        : null;
+    final currentIsVideo = currentItem != null &&
+        (currentItem['type'] == 'VIDEO' || currentItem['type']?.toString().toUpperCase() == 'VIDEO');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -947,68 +1439,139 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.more_horiz_rounded, color: Color(0xFF64748B), size: 22),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () {
-                    Share.share('${post['title']} on Bidly Community');
-                  },
+                // More Options Menu (Not Interested, Restrict)
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    dividerTheme: const DividerThemeData(
+                      color: Color(0xFFF1F5F9),
+                      thickness: 1,
+                      space: 1,
+                    ),
+                  ),
+                  child: PopupMenuButton<String>(
+                    tooltip: 'More options',
+                    icon: const Icon(Icons.more_horiz_rounded, color: Color(0xFF64748B), size: 22),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 170, maxWidth: 200),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: const BorderSide(color: Color(0xFFF1F5F9), width: 1),
+                    ),
+                    color: Colors.white,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 8,
+                    shadowColor: Colors.black.withValues(alpha: 0.12),
+                    offset: const Offset(0, 36),
+                    onOpened: () {
+                      _videoController?.pause();
+                      if (mounted) setState(() {});
+                    },
+                    itemBuilder: (ctx) => const [
+                      PopupMenuItem<String>(
+                        value: 'not_interested',
+                        height: 48,
+                        padding: EdgeInsets.symmetric(horizontal: 18),
+                        child: Text(
+                          'Not Interested',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                      PopupMenuDivider(height: 1),
+                      PopupMenuItem<String>(
+                        value: 'restrict',
+                        height: 48,
+                        padding: EdgeInsets.symmetric(horizontal: 18),
+                        child: Text(
+                          'Restrict',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                      ),
+                    ],
+                    onSelected: (value) {
+                      final postId = post['id']?.toString() ?? '';
+                      final authorId = post['authorId']?.toString() ?? '';
+                      final authorName = post['authorName'] as String? ?? 'User';
+                      if (value == 'not_interested') {
+                        HapticFeedback.mediumImpact();
+                        widget.onHide?.call(postId);
+                      } else if (value == 'restrict') {
+                        _showRestrictConfirmation(context, authorId, authorName);
+                      }
+                    },
+                  ),
                 ),
               ],
             ),
           ),
 
-          // 2. Product Media with Overlaid Badges (DIRECT BUY / BIDDING + 📍 2.0 km)
-          GestureDetector(
-            onTap: () {
-              final currentIndex = _communityPosts.indexOf(post);
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => CommunityReelsScreen(
-                    community: widget.community,
-                    posts: _communityPosts,
-                    initialIndex: currentIndex >= 0 ? currentIndex : 0,
-                  ),
-                ),
-              );
-            },
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+          // 2. SWIPEABLE Product Media Carousel (Photos & Reels)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              height: 240,
+              width: double.infinity,
+              color: const Color(0xFFF1F5F9),
               child: Stack(
                 children: [
-                  (post['imageUrl'] != null && (post['imageUrl'] as String).isNotEmpty)
-                      ? CachedNetworkImage(
-                          imageUrl: ApiClient.resolveMediaUrl(post['imageUrl'] as String),
-                          height: 210,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            height: 210,
-                            color: const Color(0xFFF1F5F9),
-                            child: const Center(
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Color(0xFF004E54),
-                              ),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => Container(
-                            height: 210,
-                            color: const Color(0xFFF1F5F9),
-                            child: const Center(
-                              child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF94A3B8), size: 36),
-                            ),
-                          ),
-                        )
-                      : Container(
-                          height: 210,
-                          width: double.infinity,
+                  PageView.builder(
+                    controller: _pageController,
+                    itemCount: mediaList.isNotEmpty ? mediaList.length : 1,
+                    onPageChanged: (idx) {
+                      setState(() => _currentMediaIndex = idx);
+                      _checkAndInitVideoForSlide(idx);
+                    },
+                    itemBuilder: (context, index) {
+                      if (mediaList.isEmpty) {
+                        return Container(
                           color: const Color(0xFFF1F5F9),
                           child: const Center(
                             child: Icon(Icons.image_outlined, color: Color(0xFF94A3B8), size: 40),
                           ),
+                        );
+                      }
+                      final item = mediaList[index];
+                      return GestureDetector(
+                        onDoubleTap: _triggerDoubleTapHeart,
+                        child: _buildMediaSlide(item, index),
+                      );
+                    },
+                  ),
+
+                  // Animated Double-Tap Heart Burst
+                  if (_showHeartBurst)
+                    Positioned.fill(
+                      child: Center(
+                        child: AnimatedBuilder(
+                          animation: _heartAnimController,
+                          builder: (context, child) {
+                            return Opacity(
+                              opacity: _heartOpacityAnim.value,
+                              child: Transform.scale(
+                                scale: _heartScaleAnim.value,
+                                child: const Icon(
+                                  Icons.favorite_rounded,
+                                  color: Colors.white,
+                                  size: 88,
+                                  shadows: [
+                                    Shadow(color: Colors.black45, blurRadius: 16),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
                         ),
+                      ),
+                    ),
 
                   // Top-Left Badge: DIRECT BUY (Teal) or BIDDING (Red)
                   Positioned(
@@ -1053,7 +1616,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                     ),
                   ),
 
-                  // Bottom-Left Badge: 📍 2.0 km
+                  // Bottom-Left Badge: 📍 Location / Distance
                   Positioned(
                     bottom: 10,
                     left: 10,
@@ -1069,7 +1632,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                           const Icon(Icons.location_on_rounded, size: 12, color: Colors.white),
                           const SizedBox(width: 4),
                           Text(
-                            '${distanceKm.toStringAsFixed(1)} km',
+                            _formatLocationBadge(post),
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 11,
@@ -1081,6 +1644,63 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                       ),
                     ),
                   ),
+
+                  // Watch Reel Button (If current slide is Video or post has reel)
+                  if (currentIsVideo || post['videoUrl'] != null || post['reelUrl'] != null)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: GestureDetector(
+                        onTap: _openFullReelScreen,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.ondemand_video_rounded, size: 14, color: Colors.white),
+                              SizedBox(width: 4),
+                              Text(
+                                'Play Reel',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Multiple Media Page Indicator Dots / Pill
+                  if (mediaList.length > 1)
+                    Positioned(
+                      bottom: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${_currentMediaIndex + 1}/${mediaList.length}',
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1117,12 +1737,12 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
 
           // 4. Dark Auction Card or Direct Buy Card
           if (isAuction)
-            _buildAuctionInfoCard(post)
+            _buildAuctionInfoCard()
           else
-            _buildDirectBuyInfoCard(post),
+            _buildDirectBuyInfoCard(),
 
-          // 5. Action Buttons (CRITICAL: Gated ONLY for Joined Members)
-          if (isJoined)
+          // 5. Action Buttons (Gated ONLY for Joined Members)
+          if (widget.isJoined)
             Padding(
               padding: const EdgeInsets.only(top: 14.0),
               child: Row(
@@ -1132,12 +1752,14 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                     child: SizedBox(
                       height: 44,
                       child: OutlinedButton(
-                        onPressed: () {
+                        onPressed: () async {
+                          _videoController?.pause();
+                          if (mounted) setState(() {});
                           final listingId = post['listingId'] as String?;
                           if (listingId != null && listingId.isNotEmpty) {
-                            context.push('/listing/$listingId');
+                            await context.push('/listing/$listingId');
                           } else {
-                            _showContactSheet(post['authorName'] as String, title);
+                            widget.onContact(post['authorName'] as String? ?? 'Seller', title);
                           }
                         },
                         style: OutlinedButton.styleFrom(
@@ -1167,12 +1789,14 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                     child: SizedBox(
                       height: 44,
                       child: ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
+                          _videoController?.pause();
+                          if (mounted) setState(() {});
                           final listingId = post['listingId'] as String?;
                           if (listingId != null && listingId.isNotEmpty) {
-                            context.push('/listing/$listingId');
+                            await context.push('/listing/$listingId');
                           } else {
-                            _showContactSheet(post['authorName'] as String, title);
+                            widget.onContact(post['authorName'] as String? ?? 'Seller', title);
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -1196,6 +1820,38 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   ),
                 ],
               ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 14.0),
+              child: SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    _videoController?.pause();
+                    if (mounted) setState(() {});
+                    widget.onJoinPrompt();
+                  },
+                  icon: const Icon(Icons.lock_outline_rounded, size: 16, color: Color(0xFF004E54)),
+                  label: const Text(
+                    'Join Community to Bid / Buy',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF004E54),
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF004E54), width: 1.2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    backgroundColor: const Color(0xFFE6F4F1),
+                  ),
+                ),
+              ),
             ),
 
           // 6. Real-time Likes & Shares Footer
@@ -1203,28 +1859,19 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
             padding: const EdgeInsets.only(top: 14.0),
             child: Row(
               children: [
-                // Like Button
+                // Like Button with Bouncy Spring Scale
                 GestureDetector(
-                  onTap: () async {
-                    setState(() {
-                      post['isLiked'] = !isLiked;
-                      post['likesCount'] = isLiked ? (likesCount - 1) : (likesCount + 1);
-                    });
-                    final result = await ref.read(communityProvider.notifier).likePost(post['id'] as String);
-                    if (result == null && mounted) {
-                      setState(() {
-                        post['isLiked'] = isLiked;
-                        post['likesCount'] = likesCount;
-                      });
-                    }
-                  },
+                  onTap: _handleLikeTap,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                        color: isLiked ? const Color(0xFFEF4444) : const Color(0xFF64748B),
-                        size: 20,
+                      ScaleTransition(
+                        scale: _likeButtonScaleAnim,
+                        child: Icon(
+                          isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                          color: isLiked ? const Color(0xFFEF4444) : const Color(0xFF64748B),
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 5),
                       Text(
@@ -1244,7 +1891,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                 // Share Button
                 GestureDetector(
                   onTap: () async {
-                    final newCount = await ref.read(communityProvider.notifier).sharePost(post['id'] as String);
+                    final newCount = await widget.onShare(post['id'] as String);
                     if (newCount != null && mounted) {
                       setState(() {
                         post['sharesCount'] = newCount;
@@ -1273,6 +1920,70 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRestrictConfirmation(BuildContext context, String authorId, String authorName) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Restrict $authorName?',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 16.5,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        content: Text(
+          'You won\'t see posts from $authorName in your feed anymore.',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 13,
+            color: Color(0xFF64748B),
+            height: 1.45,
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              HapticFeedback.heavyImpact();
+              widget.onRestrict?.call(authorId, authorName);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            child: const Text(
+              'Restrict',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
           ),
         ],

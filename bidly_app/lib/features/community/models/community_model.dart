@@ -18,6 +18,7 @@ class CommunityModel {
   final String? userRole;
   final bool isAdmin;
   final bool isJoined;
+  final bool isMuted;
   final int unreadCount;
 
   const CommunityModel({
@@ -40,6 +41,7 @@ class CommunityModel {
     this.userRole,
     this.isAdmin = false,
     this.isJoined = false,
+    this.isMuted = false,
     this.unreadCount = 0,
   });
 
@@ -69,6 +71,7 @@ class CommunityModel {
       userRole: json['userRole'] as String?,
       isAdmin: json['admin'] as bool? ?? (json['userRole'] == 'ADMIN'),
       isJoined: json['joined'] as bool? ?? (json['userRole'] != null),
+      isMuted: json['muted'] as bool? ?? json['isMuted'] as bool? ?? false,
       unreadCount: json['unreadCount'] as int? ?? 0,
     );
   }
@@ -94,8 +97,57 @@ class CommunityModel {
       'userRole': userRole,
       'isAdmin': isAdmin,
       'isJoined': isJoined,
+      'isMuted': isMuted,
       'unreadCount': unreadCount,
     };
+  }
+
+  CommunityModel copyWith({
+    String? id,
+    String? name,
+    String? description,
+    String? iconUrl,
+    String? bannerUrl,
+    String? type,
+    String? category,
+    String? city,
+    String? state,
+    String? address,
+    int? radiusKm,
+    String? rules,
+    String? createdBy,
+    int? membersCount,
+    String? recentActivityText,
+    DateTime? recentActivityTime,
+    String? userRole,
+    bool? isAdmin,
+    bool? isJoined,
+    bool? isMuted,
+    int? unreadCount,
+  }) {
+    return CommunityModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      iconUrl: iconUrl ?? this.iconUrl,
+      bannerUrl: bannerUrl ?? this.bannerUrl,
+      type: type ?? this.type,
+      category: category ?? this.category,
+      city: city ?? this.city,
+      state: state ?? this.state,
+      address: address ?? this.address,
+      radiusKm: radiusKm ?? this.radiusKm,
+      rules: rules ?? this.rules,
+      createdBy: createdBy ?? this.createdBy,
+      membersCount: membersCount ?? this.membersCount,
+      recentActivityText: recentActivityText ?? this.recentActivityText,
+      recentActivityTime: recentActivityTime ?? this.recentActivityTime,
+      userRole: userRole ?? this.userRole,
+      isAdmin: isAdmin ?? this.isAdmin,
+      isJoined: isJoined ?? this.isJoined,
+      isMuted: isMuted ?? this.isMuted,
+      unreadCount: unreadCount ?? this.unreadCount,
+    );
   }
 
   String get timeAgo {

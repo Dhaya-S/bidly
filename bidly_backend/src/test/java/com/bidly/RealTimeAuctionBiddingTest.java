@@ -59,6 +59,9 @@ public class RealTimeAuctionBiddingTest {
     @Mock
     private SimpMessagingTemplate messagingTemplate;
 
+    @Mock
+    private com.bidly.review.repository.ReviewRepository reviewRepository;
+
     @InjectMocks
     private AuctionService auctionService;
 

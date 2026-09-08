@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
@@ -26,14 +27,66 @@ class HomeFeedScreen extends ConsumerStatefulWidget {
 class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBindingObserver {
   final ValueNotifier<int> _activeReelNotifier = ValueNotifier<int>(0);
   final PageController _pageController = PageController();
+  late final PageController _horizontalTabController;
+  double _horizontalScrollOffset = 0.0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final initialTab = ref.read(reelsProvider).activeTab;
+    _horizontalTabController = PageController(initialPage: initialTab);
+    _horizontalScrollOffset = initialTab.toDouble();
+    _horizontalTabController.addListener(_onHorizontalScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(reelsProvider.notifier).fetchReels();
     });
+  }
+
+  void _onHorizontalScroll() {
+    if (!_horizontalTabController.hasClients || _horizontalTabController.page == null) return;
+    final page = _horizontalTabController.page!;
+    if ((page - _horizontalScrollOffset).abs() > 0.001) {
+      setState(() {
+        _horizontalScrollOffset = page.clamp(0.0, 1.0);
+      });
+    }
+    // Instantly pause video reels when swiping away from Feed towards Posts (> 0.05)
+    if (page > 0.05) {
+      ReelsControllerManager().pauseAll();
+    } else if (page <= 0.02 && ref.read(reelsProvider).activeTab == 0) {
+      final selectedNavIndex = ref.read(selectedNavIndexProvider);
+      if (selectedNavIndex == 0 && ModalRoute.of(context)?.isCurrent == true) {
+        ReelsControllerManager().resumeCurrent();
+      }
+    }
+  }
+
+  void _onHorizontalPageChanged(int index) {
+    if (index == 0) {
+      ref.read(reelsProvider.notifier).setActiveTab(0);
+      ref.read(postsProvider.notifier).setActiveTab(0);
+      final selectedNavIndex = ref.read(selectedNavIndexProvider);
+      if (selectedNavIndex == 0 && ModalRoute.of(context)?.isCurrent == true) {
+        ReelsControllerManager().resumeCurrent();
+      }
+    } else {
+      ref.read(reelsProvider.notifier).setActiveTab(1);
+      ref.read(postsProvider.notifier).setActiveTab(1);
+      ReelsControllerManager().pauseAll();
+    }
+  }
+
+  void _switchToTab(int index) {
+    if (!_horizontalTabController.hasClients) return;
+    if (index == 1) {
+      ReelsControllerManager().pauseAll();
+    }
+    _horizontalTabController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -43,7 +96,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
     } else {
       final selectedNavIndex = ref.read(selectedNavIndexProvider);
       final isFeedTab = ref.read(reelsProvider).activeTab == 0;
-      if (selectedNavIndex == 0 && isFeedTab) {
+      if (selectedNavIndex == 0 && isFeedTab && ModalRoute.of(context)?.isCurrent == true) {
         ReelsControllerManager().resumeCurrent();
       }
     }
@@ -52,6 +105,8 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _horizontalTabController.removeListener(_onHorizontalScroll);
+    _horizontalTabController.dispose();
     _pageController.dispose();
     _activeReelNotifier.dispose();
     ReelsControllerManager().disposeAll();
@@ -67,6 +122,16 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
     });
 
     ref.listen<ReelsState>(reelsProvider, (previous, next) {
+      if (previous?.activeTab != next.activeTab) {
+        if (_horizontalTabController.hasClients &&
+            _horizontalTabController.page?.round() != next.activeTab) {
+          _horizontalTabController.animateToPage(
+            next.activeTab,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      }
       if (next.reelListings.isNotEmpty &&
           (previous == null ||
               previous.reelListings.length != next.reelListings.length ||
@@ -88,349 +153,403 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
     final locationText = liveLocation.displayText;
     final notifState = ref.watch(notificationsProvider);
 
-    final isFeedTab = reelsState.activeTab == 0;
+    final t = _horizontalScrollOffset;
+    final isMostlyFeed = t < 0.5;
 
-    return Scaffold(
-      backgroundColor: isFeedTab ? Colors.black : Colors.white,
-      body: Stack(
-        children: [
-          // ─── TAB 0: VIDEO REEL FEED ─────────────────────────────────────────
-          if (isFeedTab) ...[
-            if (reelsState.isLoading && reelsState.reelListings.isEmpty)
-              _buildShimmerPlaceholder()
-            else if (reelsState.reelListings.isEmpty)
-              _buildEmptyReelsState()
-            else
-              PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.vertical,
-                padEnds: false,
-                physics: const ClampingScrollPhysics(),
-                itemCount: reelsState.reelListings.length,
-                onPageChanged: (idx) {
-                  _activeReelNotifier.value = idx;
-                  final reelIds = reelsState.reelListings.map((r) => r.id).toList();
-                  ReelsControllerManager().setActiveIndex(idx, reelIds);
-                  // Trigger background pre-fetch when approaching the end of the loaded reels
-                  if (idx >= reelsState.reelListings.length - 3 && reelsState.hasMore && !reelsState.isLoadingMore) {
-                    ref.read(reelsProvider.notifier).fetchNextPage();
-                  }
-                },
-                itemBuilder: (context, index) {
-                  return ReelPlayerCard(
-                    key: ValueKey(reelsState.reelListings[index].id),
-                    listing: reelsState.reelListings[index],
-                    itemIndex: index,
-                    activeNotifier: _activeReelNotifier,
-                    isHomeVisible: isHomeVisible && isFeedTab,
-                  );
-                },
-              ),
-          ]
-          // ─── TAB 1: POSTS FEED ──────────────────────────────────────────────
-          else ...[
-            Padding(
-              padding: const EdgeInsets.only(top: 110),
-              child: RefreshIndicator(
-                color: AppTheme.primary,
-                onRefresh: () => ref.read(postsProvider.notifier).fetchFeed(isRefresh: true),
-                child: postsState.isLoading && postsState.posts.isEmpty
-                    ? const Center(child: BidlyLoadingIndicator(message: 'Loading community feed...'))
-                    : postsState.posts.isEmpty
-                        ? _buildEmptyPostsState()
-                        : NotificationListener<ScrollNotification>(
-                            onNotification: (notification) {
-                              if (notification.metrics.extentAfter < 500) {
-                                ref.read(postsProvider.notifier).fetchNextPage();
-                              }
-                              return false;
-                            },
-                            child: ListView.builder(
-                              padding: const EdgeInsets.only(bottom: 90),
-                              itemCount: postsState.posts.length + (postsState.isLoadingMore ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (index >= postsState.posts.length) {
-                                  return const Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 20),
-                                    child: Center(
-                                      child: SizedBox(
-                                        width: 24,
-                                        height: 24,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.5,
-                                          color: AppTheme.primary,
-                                        ),
-                                      ),
-                                    ),
+    final systemOverlay = isMostlyFeed
+        ? SystemUiOverlayStyle.light.copyWith(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.light,
+            statusBarBrightness: Brightness.dark,
+          )
+        : SystemUiOverlayStyle.dark.copyWith(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.dark,
+            statusBarBrightness: Brightness.light,
+          );
+
+    final logoColor = Color.lerp(Colors.white, AppTheme.primary, t) ?? Colors.white;
+    final locationBgColor = Color.lerp(
+      const Color(0xFF1E232A).withValues(alpha: 0.85),
+      AppTheme.primarySoft,
+      t,
+    ) ?? AppTheme.primarySoft;
+    final locationTextColor = Color.lerp(Colors.white, AppTheme.primary, t) ?? Colors.white;
+    final notifBgColor = Color.lerp(
+      const Color(0xFF1E232A).withValues(alpha: 0.85),
+      AppTheme.surfaceVariant,
+      t,
+    ) ?? AppTheme.surfaceVariant;
+    final notifIconColor = Color.lerp(Colors.white, AppTheme.textPrimary, t) ?? Colors.white;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: systemOverlay,
+      child: Scaffold(
+        backgroundColor: isMostlyFeed ? Colors.black : Colors.white,
+        body: Stack(
+          children: [
+            // ─── HORIZONTAL PAGEVIEW: SWIPE BETWEEN FEED (REELS) & POSTS ────────
+            PageView(
+              controller: _horizontalTabController,
+              physics: const ClampingScrollPhysics(),
+              onPageChanged: _onHorizontalPageChanged,
+              children: [
+                // ─── PAGE 0: VIDEO REEL FEED ─────────────────────────────────────
+                _KeepAlivePage(
+                  child: Container(
+                    color: Colors.black,
+                    child: reelsState.isLoading && reelsState.reelListings.isEmpty
+                        ? _buildShimmerPlaceholder()
+                        : reelsState.reelListings.isEmpty
+                            ? _buildEmptyReelsState()
+                            : PageView.builder(
+                                controller: _pageController,
+                                scrollDirection: Axis.vertical,
+                                padEnds: false,
+                                physics: const ClampingScrollPhysics(),
+                                itemCount: reelsState.reelListings.length,
+                                onPageChanged: (idx) {
+                                  _activeReelNotifier.value = idx;
+                                  final reelIds = reelsState.reelListings.map((r) => r.id).toList();
+                                  ReelsControllerManager().setActiveIndex(idx, reelIds);
+                                  // Trigger background pre-fetch when approaching the end of the loaded reels
+                                  if (idx >= reelsState.reelListings.length - 3 &&
+                                      reelsState.hasMore &&
+                                      !reelsState.isLoadingMore) {
+                                    ref.read(reelsProvider.notifier).fetchNextPage();
+                                  }
+                                },
+                                itemBuilder: (context, index) {
+                                  return ReelPlayerCard(
+                                    key: ValueKey(reelsState.reelListings[index].id),
+                                    listing: reelsState.reelListings[index],
+                                    itemIndex: index,
+                                    activeNotifier: _activeReelNotifier,
+                                    isHomeVisible: isHomeVisible && t < 0.1 && reelsState.activeTab == 0,
                                   );
-                                }
-                                return PostCard(
-                                  key: ValueKey(postsState.posts[index].id),
-                                  post: postsState.posts[index],
-                                );
-                              },
-                            ),
-                          ),
-              ),
-            ),
-          ],
-
-          // ─── FLOATING TOP HEADER OVERLAY (BIDLY | Location | Notifications | Tabs) ─
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: isFeedTab
-                    ? LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.85),
-                          Colors.transparent,
-                        ],
-                      )
-                    : null,
-                color: isFeedTab ? null : Colors.white,
-                border: isFeedTab
-                    ? null
-                    : Border(bottom: BorderSide(color: AppTheme.border.withValues(alpha: 0.7))),
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Top Row: BIDLY Logo | Location Pill | Notification Bell
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      child: Row(
-                        children: [
-                          // BIDLY Logo
-                          Text(
-                            'BIDLY',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: isFeedTab ? Colors.white : AppTheme.primary,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-
-                          // Center Location Pill (Flexibly bounded to prevent overflow on narrow screens)
-                          Expanded(
-                            child: Center(
-                              child: GestureDetector(
-                                onTap: () => _showLocationPicker(context),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  constraints: const BoxConstraints(maxWidth: 180),
-                                  decoration: BoxDecoration(
-                                    color: isFeedTab
-                                        ? const Color(0xFF1E232A).withValues(alpha: 0.85)
-                                        : AppTheme.primarySoft,
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: isFeedTab
-                                        ? Border.all(color: Colors.white.withValues(alpha: 0.15))
-                                        : null,
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.location_on_outlined,
-                                        size: 14,
-                                        color: isFeedTab ? Colors.white : AppTheme.primary,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Flexible(
-                                        child: Text(
-                                          locationText,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontFamily: 'Poppins',
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: isFeedTab ? Colors.white : AppTheme.primary,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Icon(
-                                        Icons.keyboard_arrow_down_rounded,
-                                        size: 16,
-                                        color: isFeedTab ? Colors.white : AppTheme.primary,
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                },
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
+                  ),
+                ),
 
-                          // Notification Bell with dynamic badge and navigation
-                          GestureDetector(
-                            onTap: () async {
-                              ReelsControllerManager().pauseAll();
-                              await context.push(AppRoutes.notifications);
-                              if (context.mounted) {
-                                final isFeedTab = ref.read(reelsProvider).activeTab == 0;
-                                final selectedNavIndex = ref.read(selectedNavIndexProvider);
-                                if (selectedNavIndex == 0 && isFeedTab) {
-                                  ReelsControllerManager().resumeCurrent();
-                                }
-                              }
-                            },
-                            behavior: HitTestBehavior.opaque,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    color: isFeedTab
-                                        ? const Color(0xFF1E232A).withValues(alpha: 0.85)
-                                        : AppTheme.surfaceVariant,
-                                    shape: BoxShape.circle,
-                                    border: isFeedTab
-                                        ? Border.all(color: Colors.white.withValues(alpha: 0.15))
-                                        : null,
-                                  ),
-                                  child: Icon(
-                                    Icons.notifications_none_rounded,
-                                    color: isFeedTab ? Colors.white : AppTheme.textPrimary,
-                                    size: 20,
-                                  ),
-                                ),
-                                if (notifState.unreadCount > 0)
-                                  Positioned(
-                                    top: -2,
-                                    right: -2,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEF4444),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      constraints: const BoxConstraints(
-                                        minWidth: 16,
-                                        minHeight: 16,
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          notifState.unreadCount > 99
-                                              ? '99+'
-                                              : '${notifState.unreadCount}',
-                                          style: const TextStyle(
-                                            fontFamily: 'Poppins',
-                                            color: Colors.white,
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w700,
-                                            height: 1.0,
-                                          ),
-                                        ),
-                                      ),
+                // ─── PAGE 1: POSTS FEED ──────────────────────────────────────────
+                _KeepAlivePage(
+                  child: Container(
+                    color: Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 110),
+                      child: RefreshIndicator(
+                        color: AppTheme.primary,
+                        onRefresh: () => ref.read(postsProvider.notifier).fetchFeed(isRefresh: true),
+                        child: postsState.isLoading && postsState.posts.isEmpty
+                            ? const Center(child: BidlyLoadingIndicator(message: 'Loading community feed...'))
+                            : postsState.posts.isEmpty
+                                ? _buildEmptyPostsState()
+                                : NotificationListener<ScrollNotification>(
+                                    onNotification: (notification) {
+                                      if (notification.metrics.extentAfter < 500) {
+                                        ref.read(postsProvider.notifier).fetchNextPage();
+                                      }
+                                      return false;
+                                    },
+                                    child: ListView.builder(
+                                      padding: const EdgeInsets.only(bottom: 90),
+                                      itemCount: postsState.posts.length + (postsState.isLoadingMore ? 1 : 0),
+                                      itemBuilder: (context, index) {
+                                        if (index >= postsState.posts.length) {
+                                          return const Padding(
+                                            padding: EdgeInsets.symmetric(vertical: 20),
+                                            child: Center(
+                                              child: SizedBox(
+                                                width: 24,
+                                                height: 24,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2.5,
+                                                  color: AppTheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                        return PostCard(
+                                          key: ValueKey(postsState.posts[index].id),
+                                          post: postsState.posts[index],
+                                        );
+                                      },
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                        ],
                       ),
                     ),
+                  ),
+                ),
+              ],
+            ),
 
-                    // Sub-tabs: [ Feed ]  [ Posts ]
-                    Row(
-                      children: [
-                        // Feed Tab (Video Reels)
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              ref.read(reelsProvider.notifier).setActiveTab(0);
-                              ref.read(postsProvider.notifier).setActiveTab(0);
-                              ReelsControllerManager().resumeCurrent();
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              alignment: Alignment.center,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Feed',
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 14.5,
-                                      fontWeight: isFeedTab ? FontWeight.w800 : FontWeight.w500,
-                                      color: isFeedTab ? Colors.white : (isFeedTab ? const Color(0xFF94A3B8) : AppTheme.textSecondary),
+            // ─── FLOATING TOP HEADER OVERLAY (BIDLY | Location | Notifications | Tabs) ─
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: t),
+                  gradient: t < 0.99
+                      ? LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.85 * (1.0 - t)),
+                            Colors.transparent,
+                          ],
+                        )
+                      : null,
+                  border: t > 0.1
+                      ? Border(bottom: BorderSide(color: AppTheme.border.withValues(alpha: 0.7 * t)))
+                      : null,
+                ),
+                child: SafeArea(
+                  bottom: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Top Row: BIDLY Logo | Location Pill | Notification Bell
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: Row(
+                          children: [
+                            // BIDLY Logo
+                            Text(
+                              'BIDLY',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: logoColor,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+
+                            // Center Location Pill (Flexibly bounded to prevent overflow on narrow screens)
+                            Expanded(
+                              child: Center(
+                                child: GestureDetector(
+                                  onTap: () => _showLocationPicker(context),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    constraints: const BoxConstraints(maxWidth: 180),
+                                    decoration: BoxDecoration(
+                                      color: locationBgColor,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: t < 0.9
+                                          ? Border.all(color: Colors.white.withValues(alpha: 0.15 * (1.0 - t)))
+                                          : null,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.location_on_outlined,
+                                          size: 14,
+                                          color: locationTextColor,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            locationText,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontFamily: 'Poppins',
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: locationTextColor,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 2),
+                                        Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          size: 16,
+                                          color: locationTextColor,
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 5),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+
+                            // Notification Bell with dynamic badge and navigation
+                            GestureDetector(
+                              onTap: () async {
+                                ReelsControllerManager().pauseAll();
+                                await context.push(AppRoutes.notifications);
+                                if (context.mounted) {
+                                  final isFeedTab = ref.read(reelsProvider).activeTab == 0;
+                                  final selectedNavIndex = ref.read(selectedNavIndexProvider);
+                                  if (selectedNavIndex == 0 && isFeedTab && ModalRoute.of(context)?.isCurrent == true) {
+                                    ReelsControllerManager().resumeCurrent();
+                                  }
+                                }
+                              },
+                              behavior: HitTestBehavior.opaque,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
                                   Container(
-                                    height: 2.5,
-                                    width: 44,
+                                    width: 38,
+                                    height: 38,
                                     decoration: BoxDecoration(
-                                      color: isFeedTab ? (isFeedTab ? Colors.white : AppTheme.primary) : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(2),
+                                      color: notifBgColor,
+                                      shape: BoxShape.circle,
+                                      border: t < 0.9
+                                          ? Border.all(color: Colors.white.withValues(alpha: 0.15 * (1.0 - t)))
+                                          : null,
+                                    ),
+                                    child: Icon(
+                                      Icons.notifications_none_rounded,
+                                      color: notifIconColor,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  if (notifState.unreadCount > 0)
+                                    Positioned(
+                                      top: -2,
+                                      right: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEF4444),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 16,
+                                          minHeight: 16,
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            notifState.unreadCount > 99
+                                                ? '99+'
+                                                : '${notifState.unreadCount}',
+                                            style: const TextStyle(
+                                              fontFamily: 'Poppins',
+                                              color: Colors.white,
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.w700,
+                                              height: 1.0,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Sub-tabs: [ Feed ]  [ Posts ] with Instagram-style gliding indicator
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final totalWidth = constraints.maxWidth;
+                          final tabWidth = totalWidth / 2;
+                          const indicatorWidth = 44.0;
+                          final indicatorLeft = (tabWidth * (0.5 + t)) - (indicatorWidth / 2);
+                          final indicatorColor = Color.lerp(Colors.white, AppTheme.primary, t) ?? Colors.white;
+
+                          return Stack(
+                            children: [
+                              Row(
+                                children: [
+                                  // Feed Tab (Video Reels)
+                                  Expanded(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () => _switchToTab(0),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 6),
+                                        alignment: Alignment.center,
+                                        child: Text(
+                                          'Feed',
+                                          style: TextStyle(
+                                            fontFamily: 'Poppins',
+                                            fontSize: 14.5,
+                                            fontWeight: t < 0.5 ? FontWeight.w800 : FontWeight.w500,
+                                            color: Color.lerp(
+                                              Colors.white,
+                                              const Color(0xFF94A3B8),
+                                              t,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Posts Tab (Community Discussion)
+                                  Expanded(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () => _switchToTab(1),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 6),
+                                        alignment: Alignment.center,
+                                        child: Text(
+                                          'Posts',
+                                          style: TextStyle(
+                                            fontFamily: 'Poppins',
+                                            fontSize: 14.5,
+                                            fontWeight: t >= 0.5 ? FontWeight.w800 : FontWeight.w500,
+                                            color: Color.lerp(
+                                              const Color(0xFF94A3B8),
+                                              AppTheme.primary,
+                                              t,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                          ),
-                        ),
 
-                        // Posts Tab (Community Discussion)
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              ReelsControllerManager().pauseAll();
-                              ref.read(reelsProvider.notifier).setActiveTab(1);
-                              ref.read(postsProvider.notifier).setActiveTab(1);
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              alignment: Alignment.center,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Posts',
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 14.5,
-                                      fontWeight: !isFeedTab ? FontWeight.w800 : FontWeight.w500,
-                                      color: !isFeedTab ? (isFeedTab ? Colors.white : AppTheme.primary) : const Color(0xFF94A3B8),
-                                    ),
+                              // Sliding active indicator bar
+                              Positioned(
+                                bottom: 0,
+                                left: indicatorLeft.clamp(0.0, totalWidth - indicatorWidth),
+                                child: Container(
+                                  height: 2.5,
+                                  width: indicatorWidth,
+                                  decoration: BoxDecoration(
+                                    color: indicatorColor,
+                                    borderRadius: BorderRadius.circular(2),
+                                    boxShadow: t < 0.4
+                                        ? [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(alpha: 0.35),
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 1),
+                                            ),
+                                          ]
+                                        : null,
                                   ),
-                                  const SizedBox(height: 5),
-                                  Container(
-                                    height: 2.5,
-                                    width: 44,
-                                    decoration: BoxDecoration(
-                                      color: !isFeedTab ? (isFeedTab ? Colors.white : AppTheme.primary) : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(2),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -541,8 +660,9 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
     );
   }
 
-  void _showLocationPicker(BuildContext context) {
-    showModalBottomSheet(
+  void _showLocationPicker(BuildContext context) async {
+    ReelsControllerManager().pauseAll();
+    await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -580,21 +700,42 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              // Current Live GPS Card
+              const SizedBox(height: 6),
+              const Text(
+                'High-precision live GPS feed. Automatically matches your nearby hyperlocal marketplace items.',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 12.5,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Current Live GPS card
               Consumer(
                 builder: (context, ref, _) {
                   final liveLoc = ref.watch(liveLocationProvider);
                   return Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF0FDF4),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF86EFAC)),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.my_location_rounded, color: Color(0xFF16A34A), size: 24),
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.my_location_rounded,
+                            color: Color(0xFF16A34A),
+                            size: 22,
+                          ),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -662,6 +803,13 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
         ),
       ),
     );
+    if (context.mounted) {
+      final selectedNavIndex = ref.read(selectedNavIndexProvider);
+      final isFeedTab = ref.read(reelsProvider).activeTab == 0;
+      if (selectedNavIndex == 0 && isFeedTab && ModalRoute.of(context)?.isCurrent == true) {
+        ReelsControllerManager().resumeCurrent();
+      }
+    }
   }
 
   Widget _buildShimmerPlaceholder() {
@@ -720,5 +868,24 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> with WidgetsBin
         ],
       ),
     );
+  }
+}
+
+class _KeepAlivePage extends StatefulWidget {
+  final Widget child;
+  const _KeepAlivePage({required this.child});
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

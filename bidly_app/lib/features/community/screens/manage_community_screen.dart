@@ -506,7 +506,7 @@ class _ManageCommunityScreenState extends ConsumerState<ManageCommunityScreen> {
                   child: TextField(
                     controller: _memberSearchController,
                     onChanged: (_) => setState(() {}),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5),
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                     decoration: const InputDecoration(
                       hintText: 'Search members...',
                       hintStyle: TextStyle(

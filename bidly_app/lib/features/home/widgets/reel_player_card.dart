@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
@@ -48,6 +49,10 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
   bool _showPlayPause = false;
   bool _isPlayingState = true;
 
+  // Instagram Like Button Bouncy Spring Animation Controller
+  late AnimationController _likeButtonAnimController;
+  late Animation<double> _likeButtonScaleAnim;
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +81,18 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
+
+    _likeButtonAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: 1.0,
+    );
+
+    _likeButtonScaleAnim = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.35).chain(CurveTween(curve: Curves.easeOutCubic)), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.35, end: 0.9).chain(CurveTween(curve: Curves.easeInCubic)), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 30),
+    ]).animate(_likeButtonAnimController);
 
     widget.activeNotifier.addListener(_onActiveIndexChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -271,6 +288,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
     _isInitializing = false;
     _heartAnimController.dispose();
     _playPauseAnimController.dispose();
+    _likeButtonAnimController.dispose();
     _videoController = null;
     super.dispose();
   }
@@ -285,18 +303,26 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
   void _toggleLike() {
     final reelsState = ref.read(reelsProvider);
     final isCurrentlyLiked = reelsState.isLiked(widget.listing.id, widget.listing.isLikedByMe);
-    if (!isCurrentlyLiked) {
+    final nextState = !isCurrentlyLiked;
+    if (nextState) {
+      HapticFeedback.mediumImpact();
       _triggerHeartBurst();
+    } else {
+      HapticFeedback.lightImpact();
     }
+    _likeButtonAnimController.forward(from: 0.0);
     ref.read(reelsProvider.notifier).toggleLike(
       widget.listing.id,
       widget.listing.likesCount,
+      targetLiked: nextState,
       initialLiked: widget.listing.isLikedByMe,
     );
   }
 
   void _handleDoubleTap() {
+    HapticFeedback.mediumImpact();
     _triggerHeartBurst();
+    _likeButtonAnimController.forward(from: 0.0);
     // Double tap = ALWAYS LIKE (never toggle/unlike)
     ref.read(reelsProvider.notifier).toggleLike(
       widget.listing.id,
@@ -575,10 +601,8 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                     onTap: _toggleLike,
                     child: Column(
                       children: [
-                        AnimatedScale(
-                          scale: isLiked ? 1.2 : 1.0,
-                          duration: const Duration(milliseconds: 200),
-                          curve: Curves.elasticOut,
+                        ScaleTransition(
+                          scale: _likeButtonScaleAnim,
                           child: Icon(
                             isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                             color: isLiked ? const Color(0xFFEF4444) : Colors.white,
@@ -605,6 +629,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
               // Share Button
               GestureDetector(
                 onTap: () {
+                  ReelsControllerManager().pauseAll();
                   Share.share('Check out ${widget.listing.title} on Bidly: ₹${widget.listing.price.toStringAsFixed(0)}');
                 },
                 child: const Column(
@@ -660,74 +685,84 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
             mainAxisSize: MainAxisSize.min,
             children: [
               // Seller Info Row
-              Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF004E54),
-                      shape: BoxShape.circle,
+              GestureDetector(
+                onTap: () async {
+                  ReelsControllerManager().pauseAll();
+                  await context.push('/listing/${widget.listing.id}', extra: widget.listing);
+                  if (context.mounted && widget.isHomeVisible && ModalRoute.of(context)?.isCurrent == true) {
+                    ReelsControllerManager().resumeCurrent();
+                  }
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF004E54),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          _getSellerInitials(),
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                     ),
-                    child: Center(
+                    const SizedBox(width: 10),
+                    Flexible(
                       child: Text(
-                        _getSellerInitials(),
+                        _getSellerName(),
                         style: const TextStyle(
                           fontFamily: 'Poppins',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                           color: Colors.white,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: Text(
-                      _getSellerName(),
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (_getLocationText() != null) ...[
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF004E54),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.location_on_outlined, color: Colors.white70, size: 11),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                _getLocationText()!,
-                                style: const TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
+                    if (_getLocationText() != null) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF004E54),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.location_on_outlined, color: Colors.white70, size: 11),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text(
+                                  _getLocationText()!,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
               const SizedBox(height: 8),
 
@@ -890,7 +925,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                         onPressed: () async {
                           ReelsControllerManager().pauseAll();
                           await context.push('/listing/${widget.listing.id}', extra: widget.listing);
-                          if (mounted && widget.isHomeVisible) {
+                          if (context.mounted && widget.isHomeVisible && ModalRoute.of(context)?.isCurrent == true) {
                             ReelsControllerManager().resumeCurrent();
                           }
                         },
@@ -925,7 +960,7 @@ class _ReelPlayerCardState extends ConsumerState<ReelPlayerCard>
                           } else {
                             await context.push('/chat/offer/${widget.listing.id}', extra: widget.listing);
                           }
-                          if (mounted && widget.isHomeVisible) {
+                          if (context.mounted && widget.isHomeVisible && ModalRoute.of(context)?.isCurrent == true) {
                             ReelsControllerManager().resumeCurrent();
                           }
                         },

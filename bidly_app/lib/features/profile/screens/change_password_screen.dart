@@ -91,6 +91,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               TextFormField(
                 controller: _currentController,
                 obscureText: _obscureCurrent,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   hintText: '••••••••',
                   suffixIcon: IconButton(
@@ -109,6 +110,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               TextFormField(
                 controller: _newController,
                 obscureText: _obscureNew,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   hintText: 'Min. 8 characters',
                   suffixIcon: IconButton(
@@ -127,6 +129,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               TextFormField(
                 controller: _confirmController,
                 obscureText: _obscureConfirm,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   hintText: '••••••••',
                   suffixIcon: IconButton(

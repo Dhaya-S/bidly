@@ -1267,7 +1267,11 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                           const Icon(Icons.location_on_outlined, size: 14, color: Color(0xFF64748B)),
                           const SizedBox(width: 4),
                           Text(
-                            '${details.city.isNotEmpty ? details.city : "Chennai"}, ${details.state.isNotEmpty ? details.state : "Tamil Nadu"} · ${details.productCondition.replaceAll('_', ' ')}',
+                            [
+                              if (details.city.trim().isNotEmpty) details.city.trim(),
+                              if (details.state.trim().isNotEmpty) details.state.trim(),
+                              if (details.productCondition.trim().isNotEmpty) details.productCondition.replaceAll('_', ' '),
+                            ].join(' · '),
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12.5,
@@ -1459,9 +1463,14 @@ class _AuctionTrackerScreenState extends ConsumerState<AuctionTrackerScreen> {
                       const SizedBox(height: 12),
                       _buildTrustBullet('BIDLY Buyer Protection covers this auction'),
                       const SizedBox(height: 8),
-                      _buildTrustBullet('Seller identity verified with Aadhaar'),
+                      _buildTrustBullet('Seller identity and contact verified on BIDLY'),
                       const SizedBox(height: 8),
-                      _buildTrustBullet('Seller has 4.9★ rating across 312 reviews'),
+                      if (details.sellerReviewsCount > 0)
+                        _buildTrustBullet('Seller has ${details.sellerRating.toStringAsFixed(1)}★ rating across ${details.sellerReviewsCount} verified reviews')
+                      else if (details.sellerRating > 0)
+                        _buildTrustBullet('Seller rated ${details.sellerRating.toStringAsFixed(1)}★ by buyers on BIDLY')
+                      else
+                        _buildTrustBullet('Protected transaction with escrow payment security'),
                     ],
                   ),
                 ),

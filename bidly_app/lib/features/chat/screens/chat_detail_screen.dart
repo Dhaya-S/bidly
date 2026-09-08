@@ -458,7 +458,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                       ),
                       child: TextField(
                         controller: _textController,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                         decoration: const InputDecoration(
                           hintText: 'Type a message...',
                           hintStyle: TextStyle(

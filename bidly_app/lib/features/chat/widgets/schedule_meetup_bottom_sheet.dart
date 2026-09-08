@@ -537,6 +537,7 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
             const SizedBox(height: 8),
             TextField(
               controller: _timeController,
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
               decoration: InputDecoration(
                 hintText: 'e.g. 10:00 AM or 14:30',
                 prefixIcon: const Icon(Icons.access_time_rounded, size: 20, color: Color(0xFF004E54)),
@@ -595,6 +596,7 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
             const SizedBox(height: 8),
             TextField(
               controller: _locationController,
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
               decoration: InputDecoration(
                 hintText: 'Enter agreed meetup location (e.g. Mall, Metro Station)',
                 prefixIcon: const Icon(Icons.location_on_outlined, size: 20, color: Color(0xFF004E54)),
@@ -675,6 +677,8 @@ class _ScheduleMeetupBottomSheetState extends ConsumerState<ScheduleMeetupBottom
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF004E54),
                   foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFF004E54),
+                  disabledForegroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

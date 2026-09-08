@@ -121,26 +121,24 @@ public class AsyncMediaProcessingTest {
     }
 
     @Test
-    void test2_videoUpload_asynchronousFastReturnProcessing() {
+    void test2_videoUpload_directR2UploadAndReady() {
         MockMultipartFile videoFile = new MockMultipartFile(
                 "file", "reel.mp4", "video/mp4", new byte[2048]);
 
-        MediaJob mockJob = new MediaJob("listings/reels/test.mp4", "listings/reels/test-thumb.jpg", MediaJob.ProcessingStatus.PROCESSING);
+        MediaJob mockJob = new MediaJob("listings/reels/test.mp4", "listings/reels/test-thumb.jpg", MediaJob.ProcessingStatus.READY);
         mockJob.setId(UUID.randomUUID());
         when(mediaJobRepository.save(any(MediaJob.class))).thenReturn(mockJob);
 
         Map<String, String> result = mediaService.uploadMediaFile(videoFile, "listings/reels");
 
         assertNotNull(result);
-        assertEquals("PROCESSING", result.get("status"));
-        assertEquals("true", result.get("processing"));
+        assertEquals("READY", result.get("status"));
+        assertEquals("false", result.get("processing"));
         assertNotNull(result.get("url"));
-        assertNotNull(result.get("thumbnailUrl"));
         assertEquals(mockJob.getId().toString(), result.get("jobId"));
 
-        // Verify async video processing was scheduled
-        verify(asyncVideoProcessingService).processVideoAsync(
-                eq(mockJob.getId()), any(File.class), anyString(), anyString(), any());
+        // Verify direct video upload to S3/R2 was called
+        verify(s3Client).putObject(any(PutObjectRequest.class), any(software.amazon.awssdk.core.sync.RequestBody.class));
     }
 
     @Test

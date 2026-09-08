@@ -102,30 +102,11 @@ public class MediaService {
             return result;
         }
 
-        // --- Asynchronous Reel Video Pipeline ---
+        // --- Reel Video Pipeline ---
         if (file.getSize() > maxSizeBytes) {
             double sizeMb = file.getSize() / (1024.0 * 1024.0);
             double maxMb = maxSizeBytes / (1024.0 * 1024.0);
             throw BidlyException.badRequest(String.format("Video file size (%.1fMB) exceeds maximum limit of %.0fMB", sizeMb, maxMb));
-        }
-
-        if (!videoProcessingService.isAvailable()) {
-            // Direct synchronous upload to Cloudflare R2 when transcode service (ffmpeg) is not present
-            String videoKey = uploadDirectToR2(file, folder != null ? folder : "listings/reels");
-            MediaJob job = new MediaJob(videoKey, null, MediaJob.ProcessingStatus.READY);
-            MediaJob savedJob = mediaJobRepository.save(job);
-
-            long httpDuration = System.currentTimeMillis() - uploadStartTime;
-            log.info("[MEDIA_UPLOAD] DIRECT_SYNC_COMPLETE jobId={} videoKey='{}' size={} http_response_ms={}",
-                    savedJob.getId(), videoKey, file.getSize(), httpDuration);
-
-            Map<String, String> result = new HashMap<>();
-            result.put("url", videoKey);
-            result.put("thumbnailUrl", null);
-            result.put("jobId", savedJob.getId().toString());
-            result.put("status", "READY");
-            result.put("processing", "false");
-            return result;
         }
 
         File tempDir = getTempDirectory();
@@ -146,28 +127,66 @@ public class MediaService {
         String videoKey = (folder != null ? folder : "listings/reels") + "/" + fileId + ".mp4";
         String thumbKey = (folder != null ? folder : "listings/reels") + "/" + fileId + "-thumb.jpg";
 
-        // Save MediaJob with initial PROCESSING status
-        MediaJob job = new MediaJob(videoKey, thumbKey, MediaJob.ProcessingStatus.PROCESSING);
+        // 1. Immediately upload source video directly to Cloudflare R2
+        long r2StartTime = System.currentTimeMillis();
+        try {
+            PutObjectRequest videoPut = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(videoKey)
+                    .contentType("video/mp4")
+                    .contentLength(sourceTempFile.length())
+                    .build();
+            s3Client.putObject(videoPut, RequestBody.fromFile(sourceTempFile));
+            long r2Duration = System.currentTimeMillis() - r2StartTime;
+            log.info("[MEDIA_UPLOAD] DIRECT_R2_VIDEO_UPLOAD_COMPLETE videoKey='{}' size={} r2_ms={}",
+                    videoKey, sourceTempFile.length(), r2Duration);
+        } catch (Exception e) {
+            safeDelete(sourceTempFile);
+            log.error("[MEDIA_UPLOAD] Failed to upload video to Cloudflare R2: {}", e.getMessage(), e);
+            throw BidlyException.internal("Failed to store reel video in Cloudflare R2: " + e.getMessage());
+        }
+
+        // 2. Extract and upload companion thumbnail poster if FFmpeg available
+        String finalThumbKey = null;
+        if (videoProcessingService.isAvailable()) {
+            File thumbTempFile = new File(tempDir, "thumb_" + fileId + ".jpg");
+            try {
+                boolean extracted = videoProcessingService.extractThumbnail(sourceTempFile, thumbTempFile);
+                if (extracted && thumbTempFile.exists() && thumbTempFile.length() > 0) {
+                    PutObjectRequest thumbPut = PutObjectRequest.builder()
+                            .bucket(bucketName)
+                            .key(thumbKey)
+                            .contentType("image/jpeg")
+                            .contentLength(thumbTempFile.length())
+                            .build();
+                    s3Client.putObject(thumbPut, RequestBody.fromFile(thumbTempFile));
+                    finalThumbKey = thumbKey;
+                    log.info("[MEDIA_UPLOAD] THUMBNAIL_UPLOAD_COMPLETE thumbKey='{}' size={}", thumbKey, thumbTempFile.length());
+                }
+            } catch (Exception thumbEx) {
+                log.warn("[MEDIA_UPLOAD] Thumbnail extraction failed for videoKey='{}': {}", videoKey, thumbEx.getMessage());
+            } finally {
+                safeDelete(thumbTempFile);
+            }
+        }
+
+        // Clean up temporary upload file from disk
+        safeDelete(sourceTempFile);
+
+        // 3. Save MediaJob as READY (since file is already live in Cloudflare R2)
+        MediaJob job = new MediaJob(videoKey, finalThumbKey, MediaJob.ProcessingStatus.READY);
         MediaJob savedJob = mediaJobRepository.save(job);
 
-        // Enqueue asynchronous background transcoding on dedicated bounded thread pool
-        asyncVideoProcessingService.processVideoAsync(
-                savedJob.getId(),
-                sourceTempFile,
-                videoKey,
-                thumbKey,
-                bucketName);
-
         long httpDuration = System.currentTimeMillis() - uploadStartTime;
-        log.info("[MEDIA_UPLOAD] QUEUED_ASYNC jobId={} videoKey='{}' size={} http_response_ms={}",
-                savedJob.getId(), videoKey, file.getSize(), httpDuration);
+        log.info("[MEDIA_UPLOAD] SYNC_COMPLETE jobId={} videoKey='{}' thumbKey='{}' total_ms={}",
+                savedJob.getId(), videoKey, finalThumbKey, httpDuration);
 
         Map<String, String> result = new HashMap<>();
         result.put("url", videoKey);
-        result.put("thumbnailUrl", thumbKey);
+        result.put("thumbnailUrl", finalThumbKey);
         result.put("jobId", savedJob.getId().toString());
-        result.put("status", "PROCESSING");
-        result.put("processing", "true");
+        result.put("status", "READY");
+        result.put("processing", "false");
         return result;
     }
 
@@ -323,14 +342,8 @@ public class MediaService {
                 .build();
     }
 
-    private static final int MAX_CACHE_SIZE = 5000;
-    private final java.util.concurrent.ConcurrentMap<String, CachedPresignedUrl> presignedUrlCache = new java.util.concurrent.ConcurrentHashMap<>();
-
-    private record CachedPresignedUrl(String presignedUrl, java.time.Instant expiresAt) {}
-
     /**
-     * Generate a secure, short-lived presigned GET URL for direct streaming from Cloudflare R2.
-     * Uses a thread-safe in-memory TTL cache to eliminate redundant HMAC-SHA256 signature calculations.
+     * Generate a direct media proxy streaming path for Cloudflare R2 files.
      */
     public String generatePresignedGetUrl(String objectKeyOrUrl, Duration duration) {
         if (objectKeyOrUrl == null || objectKeyOrUrl.isBlank()) {
@@ -352,42 +365,18 @@ public class MediaService {
         while (objectKey.startsWith("/")) {
             objectKey = objectKey.substring(1);
         }
-
-        CachedPresignedUrl cached = presignedUrlCache.get(objectKey);
-        if (cached != null && java.time.Instant.now().plus(Duration.ofMinutes(30)).isBefore(cached.expiresAt())) {
-            return cached.presignedUrl();
+        if (objectKey.startsWith("bidly-media/")) {
+            objectKey = objectKey.substring("bidly-media/".length());
+        }
+        if (objectKey.startsWith("api/media/file/")) {
+            objectKey = objectKey.substring("api/media/file/".length());
+        }
+        if (objectKey.startsWith("media/file/")) {
+            objectKey = objectKey.substring("media/file/".length());
         }
 
-        Duration effectiveDuration = duration != null ? duration : Duration.ofHours(4);
-
-        try {
-            GetObjectRequest getRequest = GetObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(objectKey)
-                    .build();
-
-            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                    .signatureDuration(effectiveDuration)
-                    .getObjectRequest(getRequest)
-                    .build();
-
-            PresignedGetObjectRequest presigned = s3Presigner.presignGetObject(presignRequest);
-            String url = presigned.url().toString();
-
-            if (presignedUrlCache.size() >= MAX_CACHE_SIZE) {
-                java.time.Instant now = java.time.Instant.now();
-                presignedUrlCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
-                if (presignedUrlCache.size() >= MAX_CACHE_SIZE) {
-                    presignedUrlCache.clear();
-                }
-            }
-
-            presignedUrlCache.put(objectKey, new CachedPresignedUrl(url, java.time.Instant.now().plus(effectiveDuration)));
-            return url;
-        } catch (Exception e) {
-            log.warn("Failed to generate presigned GET URL for key '{}': {}", objectKey, e.getMessage());
-            return objectKeyOrUrl;
-        }
+        // Return direct streaming proxy path handled by MediaController /api/media/file/**
+        return "/media/file/" + objectKey;
     }
 
     /**

@@ -708,8 +708,8 @@ class _CreateCommunityScreenState extends ConsumerState<CreateCommunityScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF004E54),
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFE2E8F0),
-                      disabledForegroundColor: const Color(0xFF94A3B8),
+                      disabledBackgroundColor: const Color(0xFF004E54),
+                      disabledForegroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),

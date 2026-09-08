@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/api/api_client.dart';
@@ -23,7 +24,7 @@ class CommunityReelsScreen extends ConsumerStatefulWidget {
       _CommunityReelsScreenState();
 }
 
-class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
+class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> with WidgetsBindingObserver {
   late PageController _pageController;
   final Map<int, VideoPlayerController> _videoControllers = {};
   int _currentIndex = 0;
@@ -31,15 +32,26 @@ class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
     _initVideoFor(_currentIndex);
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _videoControllers[_currentIndex]?.pause();
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     for (final ctrl in _videoControllers.values) {
+      ctrl.pause();
       ctrl.dispose();
     }
     super.dispose();
@@ -48,18 +60,37 @@ class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
   Future<void> _initVideoFor(int index) async {
     if (index < 0 || index >= widget.posts.length) return;
     final post = widget.posts[index];
-    final videoUrl = post['videoUrl'] as String?;
+    String? videoUrl = post['videoUrl'] as String? ?? post['reelUrl'] as String?;
+    if (videoUrl == null || videoUrl.isEmpty) {
+      final mediaItems = post['mediaItems'] as List?;
+      if (mediaItems != null) {
+        for (final item in mediaItems) {
+          if (item is Map && (item['type'] == 'VIDEO' || item['type']?.toString().toUpperCase() == 'VIDEO')) {
+            videoUrl = item['url']?.toString();
+            if (videoUrl != null && videoUrl.isNotEmpty) break;
+          }
+        }
+      }
+    }
     if (videoUrl == null || videoUrl.isEmpty) return;
     if (_videoControllers.containsKey(index)) return;
 
-    final ctrl = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
-    _videoControllers[index] = ctrl;
-    await ctrl.initialize();
-    if (mounted && _currentIndex == index) {
-      ctrl.setLooping(true);
-      ctrl.play();
+    try {
+      final ctrl = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+      _videoControllers[index] = ctrl;
+      await ctrl.initialize();
+      if (mounted && _currentIndex == index) {
+        ctrl.setLooping(true);
+        if (ModalRoute.of(context)?.isCurrent == true) {
+          ctrl.play();
+        } else {
+          ctrl.pause();
+        }
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('[CommunityReelsScreen] Error initializing video: $e');
     }
-    setState(() {});
   }
 
   void _onPageChanged(int index) {
@@ -71,7 +102,11 @@ class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
     // Play new
     final ctrl = _videoControllers[index];
     if (ctrl != null && ctrl.value.isInitialized) {
-      ctrl.play();
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        ctrl.play();
+      } else {
+        ctrl.pause();
+      }
     } else {
       _initVideoFor(index);
     }
@@ -100,7 +135,10 @@ class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.pop(context),
+                    onTap: () {
+                      _videoControllers[_currentIndex]?.pause();
+                      Navigator.pop(context);
+                    },
                     child: Container(
                       width: 38,
                       height: 38,
@@ -327,11 +365,26 @@ class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
                 iconColor: isLiked ? const Color(0xFFEF4444) : Colors.white,
                 label: likesCount.toString(),
                 onTap: () async {
+                  final nextLiked = !isLiked;
+                  if (nextLiked) {
+                    HapticFeedback.mediumImpact();
+                  } else {
+                    HapticFeedback.lightImpact();
+                  }
                   setState(() {
-                    post['isLiked'] = !isLiked;
-                    post['likesCount'] = isLiked ? (likesCount - 1) : (likesCount + 1);
+                    post['isLiked'] = nextLiked;
+                    post['likesCount'] = nextLiked ? (likesCount + 1) : (likesCount > 0 ? likesCount - 1 : 0);
                   });
-                  await ref.read(communityProvider.notifier).likePost(post['id'] as String);
+                  final data = await ref.read(communityProvider.notifier).likePost(
+                    post['id'] as String,
+                    action: nextLiked ? 'like' : 'unlike',
+                  );
+                  if (data != null && mounted) {
+                    setState(() {
+                      if (data['liked'] != null) post['isLiked'] = data['liked'];
+                      if (data['likesCount'] != null) post['likesCount'] = data['likesCount'];
+                    });
+                  }
                 },
               ),
               const SizedBox(height: 20),
@@ -342,6 +395,8 @@ class _CommunityReelsScreenState extends ConsumerState<CommunityReelsScreen> {
                 iconColor: Colors.white,
                 label: sharesCount > 0 ? sharesCount.toString() : 'Share',
                 onTap: () async {
+                  _videoControllers[_currentIndex]?.pause();
+                  if (mounted) setState(() {});
                   final count = await ref.read(communityProvider.notifier).sharePost(post['id'] as String);
                   if (count != null && mounted) {
                     setState(() => post['sharesCount'] = count);

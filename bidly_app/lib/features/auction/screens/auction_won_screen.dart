@@ -192,7 +192,12 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                               children: [
                                 const Icon(Icons.star_rounded, size: 16, color: Color(0xFFF59E0B)),
                                 const SizedBox(width: 4),
-                                Text('$sellerRating • $sellerReviews reviews', style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B))),
+                                Text(
+                                  sellerReviews > 0
+                                      ? '${sellerRating.toStringAsFixed(1)} • $sellerReviews reviews'
+                                      : (sellerRating > 0 ? '${sellerRating.toStringAsFixed(1)} • Verified' : 'New Seller'),
+                                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Color(0xFF64748B)),
+                                ),
                               ],
                             ),
                           ],
@@ -607,6 +612,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: nameCtrl,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Recipient Full Name',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -617,6 +623,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
               TextField(
                 controller: phoneCtrl,
                 keyboardType: TextInputType.phone,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Contact Phone Number',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -626,6 +633,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
               const SizedBox(height: 10),
               TextField(
                 controller: addressCtrl,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Street / Flat / Locality',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -638,6 +646,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                   Expanded(
                     child: TextField(
                       controller: cityCtrl,
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'City',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -650,6 +659,7 @@ class _AuctionWonScreenState extends ConsumerState<AuctionWonScreen> {
                     child: TextField(
                       controller: pincodeCtrl,
                       keyboardType: TextInputType.number,
+                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: AppTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'PIN Code',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),

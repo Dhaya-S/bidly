@@ -6,11 +6,15 @@ import com.bidly.community.dto.CreatePostRequest;
 import com.bidly.community.dto.PostDto;
 import com.bidly.community.entity.Community;
 import com.bidly.community.entity.CommunityPost;
+import com.bidly.community.entity.PostHide;
 import com.bidly.community.entity.PostLike;
+import com.bidly.community.entity.UserRestrict;
 import com.bidly.community.repository.CommunityMemberRepository;
 import com.bidly.community.repository.CommunityPostRepository;
 import com.bidly.community.repository.CommunityRepository;
+import com.bidly.community.repository.PostHideRepository;
 import com.bidly.community.repository.PostLikeRepository;
+import com.bidly.community.repository.UserRestrictRepository;
 import com.bidly.user.entity.User;
 import com.bidly.user.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
@@ -23,10 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.bidly.listing.dto.ListingSummaryDto;
 import com.bidly.listing.entity.ListingMedia;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -40,6 +46,8 @@ public class CommunityPostService {
     private final CommunityRepository communityRepository;
     private final CommunityMemberRepository memberRepository;
     private final PostLikeRepository postLikeRepository;
+    private final PostHideRepository postHideRepository;
+    private final UserRestrictRepository userRestrictRepository;
     private final UserRepository userRepository;
     private final com.bidly.media.service.MediaService mediaService;
 
@@ -48,12 +56,16 @@ public class CommunityPostService {
             CommunityRepository communityRepository,
             CommunityMemberRepository memberRepository,
             PostLikeRepository postLikeRepository,
+            PostHideRepository postHideRepository,
+            UserRestrictRepository userRestrictRepository,
             UserRepository userRepository,
             com.bidly.media.service.MediaService mediaService) {
         this.postRepository = postRepository;
         this.communityRepository = communityRepository;
         this.memberRepository = memberRepository;
         this.postLikeRepository = postLikeRepository;
+        this.postHideRepository = postHideRepository;
+        this.userRestrictRepository = userRestrictRepository;
         this.userRepository = userRepository;
         this.mediaService = mediaService;
     }
@@ -65,25 +77,53 @@ public class CommunityPostService {
      */
     @Transactional(readOnly = true)
     public List<PostDto> getFeed(UUID currentUserId, int page, int size) {
+        return getFeed(currentUserId, null, null, page, size);
+    }
+
+    /**
+     * Retrieves global posts for the home feed (excludes community-specific posts).
+     */
+    @Transactional(readOnly = true)
+    public List<PostDto> getFeed(UUID currentUserId, Double latitude, Double longitude, int page, int size) {
         long t0 = System.currentTimeMillis();
         Page<CommunityPost> postsPage = postRepository.findByCommunityIsNullOrderByCreatedAtDesc(PageRequest.of(page, size));
         long t1 = System.currentTimeMillis();
 
         List<CommunityPost> content = postsPage.getContent();
+
+        // Filter out hidden posts and restricted users for authenticated users
+        Set<UUID> hiddenPostIds = Collections.emptySet();
+        Set<UUID> restrictedUserIds = Collections.emptySet();
+        if (currentUserId != null) {
+            hiddenPostIds = postHideRepository.findHiddenPostIdsByUserId(currentUserId);
+            restrictedUserIds = userRestrictRepository.findRestrictedUserIdsByUserId(currentUserId);
+        }
+        final Set<UUID> finalHidden = hiddenPostIds;
+        final Set<UUID> finalRestricted = restrictedUserIds;
+        List<CommunityPost> filtered = content.stream()
+                .filter(p -> !finalHidden.contains(p.getId()))
+                .filter(p -> p.getAuthor() == null || !finalRestricted.contains(p.getAuthor().getId()))
+                .collect(Collectors.toList());
+
         Set<UUID> likedPostIds = Collections.emptySet();
-        if (currentUserId != null && !content.isEmpty()) {
-            List<UUID> postIds = content.stream().map(CommunityPost::getId).collect(Collectors.toList());
+        if (currentUserId != null && !filtered.isEmpty()) {
+            List<UUID> postIds = filtered.stream().map(CommunityPost::getId).collect(Collectors.toList());
             likedPostIds = postLikeRepository.findLikedPostIdsByUserIdAndPostIds(currentUserId, postIds);
         }
 
         final Set<UUID> finalLikedIds = likedPostIds;
-        List<PostDto> results = content.stream()
-                .map(post -> mapToDto(post, currentUserId, finalLikedIds))
+        List<PostDto> results = filtered.stream()
+                .map(post -> mapToDto(post, currentUserId, finalLikedIds, latitude, longitude))
                 .collect(Collectors.toList());
         long t2 = System.currentTimeMillis();
-        log.info("[POST_API] page={} size={} db_ms={} mapping_ms={} total_ms={} count={}",
-                page, size, (t1 - t0), (t2 - t1), (t2 - t0), results.size());
+        log.info("[POST_API] page={} size={} db_ms={} mapping_ms={} total_ms={} count={} hidden={} restricted={}",
+                page, size, (t1 - t0), (t2 - t1), (t2 - t0), results.size(), finalHidden.size(), finalRestricted.size());
         return results;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PostDto> getCommunityPosts(UUID communityId, UUID currentUserId, int page, int size) {
+        return getCommunityPosts(communityId, currentUserId, null, null, page, size);
     }
 
     /**
@@ -91,7 +131,7 @@ public class CommunityPostService {
      * Enforces strict active membership check (no bypass).
      */
     @Transactional(readOnly = true)
-    public List<PostDto> getCommunityPosts(UUID communityId, UUID currentUserId, int page, int size) {
+    public List<PostDto> getCommunityPosts(UUID communityId, UUID currentUserId, Double latitude, Double longitude, int page, int size) {
         if (currentUserId == null) {
             throw BidlyException.unauthorized("Authentication required to view community posts");
         }
@@ -106,20 +146,40 @@ public class CommunityPostService {
         long t1 = System.currentTimeMillis();
 
         List<CommunityPost> content = postsPage.getContent();
+
+        // Filter out hidden posts and restricted users for authenticated users
+        Set<UUID> hiddenPostIds = Collections.emptySet();
+        Set<UUID> restrictedUserIds = Collections.emptySet();
+        if (currentUserId != null) {
+            hiddenPostIds = postHideRepository.findHiddenPostIdsByUserId(currentUserId);
+            restrictedUserIds = userRestrictRepository.findRestrictedUserIdsByUserId(currentUserId);
+        }
+        final Set<UUID> finalHidden = hiddenPostIds;
+        final Set<UUID> finalRestricted = restrictedUserIds;
+        List<CommunityPost> filtered = content.stream()
+                .filter(p -> !finalHidden.contains(p.getId()))
+                .filter(p -> p.getAuthor() == null || !finalRestricted.contains(p.getAuthor().getId()))
+                .collect(Collectors.toList());
+
         Set<UUID> likedPostIds = Collections.emptySet();
-        if (!content.isEmpty()) {
-            List<UUID> postIds = content.stream().map(CommunityPost::getId).collect(Collectors.toList());
+        if (currentUserId != null && !filtered.isEmpty()) {
+            List<UUID> postIds = filtered.stream().map(CommunityPost::getId).collect(Collectors.toList());
             likedPostIds = postLikeRepository.findLikedPostIdsByUserIdAndPostIds(currentUserId, postIds);
         }
 
         final Set<UUID> finalLikedIds = likedPostIds;
-        List<PostDto> results = content.stream()
-                .map(post -> mapToDto(post, currentUserId, finalLikedIds))
+        List<PostDto> results = filtered.stream()
+                .map(post -> mapToDto(post, currentUserId, finalLikedIds, latitude, longitude))
                 .collect(Collectors.toList());
         long t2 = System.currentTimeMillis();
-        log.info("[COMMUNITY_POST_API] communityId={} page={} size={} db_ms={} mapping_ms={} total_ms={} count={}",
-                communityId, page, size, (t1 - t0), (t2 - t1), (t2 - t0), results.size());
+        log.info("[COMMUNITY_POST_API] communityId={} page={} size={} db_ms={} mapping_ms={} total_ms={} count={} hidden={} restricted={}",
+                communityId, page, size, (t1 - t0), (t2 - t1), (t2 - t0), results.size(), finalHidden.size(), finalRestricted.size());
         return results;
+    }
+
+    @Transactional(readOnly = true)
+    public PostDto getPostById(UUID postId, UUID currentUserId) {
+        return getPostById(postId, currentUserId, null, null);
     }
 
     /**
@@ -127,7 +187,7 @@ public class CommunityPostService {
      * If scoped to a community, enforces strict active membership check (no bypass).
      */
     @Transactional(readOnly = true)
-    public PostDto getPostById(UUID postId, UUID currentUserId) {
+    public PostDto getPostById(UUID postId, UUID currentUserId, Double latitude, Double longitude) {
         CommunityPost post = postRepository.findById(postId)
                 .orElseThrow(() -> BidlyException.notFound("Post not found: " + postId));
 
@@ -142,7 +202,7 @@ public class CommunityPostService {
                 ? Set.of(postId)
                 : Collections.emptySet();
 
-        return mapToDto(post, currentUserId, likedPostIds);
+        return mapToDto(post, currentUserId, likedPostIds, latitude, longitude);
     }
 
     /**
@@ -209,33 +269,43 @@ public class CommunityPostService {
         int currentCount = post.getLikesCount();
         int newCount = currentCount;
 
+        boolean finalLiked;
         if (desiredLiked != null) {
             if (desiredLiked && !alreadyLiked) {
                 postLikeRepository.save(new PostLike(userId, postId));
+                postLikeRepository.flush();
                 newCount = currentCount + 1;
                 post.setLikesCount(newCount);
                 postRepository.saveAndFlush(post);
+                finalLiked = true;
             } else if (!desiredLiked && alreadyLiked) {
                 postLikeRepository.deleteByUserIdAndPostId(userId, postId);
+                postLikeRepository.flush();
                 newCount = Math.max(0, currentCount - 1);
                 post.setLikesCount(newCount);
                 postRepository.saveAndFlush(post);
+                finalLiked = false;
+            } else {
+                finalLiked = desiredLiked;
             }
         } else {
             if (alreadyLiked) {
                 postLikeRepository.deleteByUserIdAndPostId(userId, postId);
+                postLikeRepository.flush();
                 newCount = Math.max(0, currentCount - 1);
                 post.setLikesCount(newCount);
                 postRepository.saveAndFlush(post);
+                finalLiked = false;
             } else {
                 postLikeRepository.save(new PostLike(userId, postId));
+                postLikeRepository.flush();
                 newCount = currentCount + 1;
                 post.setLikesCount(newCount);
                 postRepository.saveAndFlush(post);
+                finalLiked = true;
             }
         }
 
-        boolean finalLiked = postLikeRepository.existsByUserIdAndPostId(userId, postId);
         log.info("[LIKE_POST] post={} action={} finalLiked={} count={}", postId, action, finalLiked, newCount);
 
         return Map.of(
@@ -273,6 +343,10 @@ public class CommunityPostService {
     }
 
     private PostDto mapToDto(CommunityPost post, UUID currentUserId, Set<UUID> likedPostIds) {
+        return mapToDto(post, currentUserId, likedPostIds, null, null);
+    }
+
+    private PostDto mapToDto(CommunityPost post, UUID currentUserId, Set<UUID> likedPostIds, Double userLat, Double userLng) {
         PostDto dto = new PostDto();
         dto.setId(post.getId());
         if (post.getAuthor() != null) {
@@ -294,12 +368,27 @@ public class CommunityPostService {
         dto.setSharesCount(post.getSharesCount());
         dto.setCreatedAt(post.getCreatedAt());
 
+        Double sellerLat = null;
+        Double sellerLng = null;
+        String locality = null;
+        String city = null;
+
         if (post.getListing() != null) {
             com.bidly.listing.entity.Listing l = post.getListing();
             dto.setListingId(l.getId());
             dto.setListingTitle(l.getTitle());
             dto.setListingDescription(l.getDescription());
-            dto.setDistanceKm(2.0);
+            sellerLat = l.getLatitude();
+            sellerLng = l.getLongitude();
+            locality = l.getLocality();
+            city = l.getCity();
+            if ((sellerLat == null || sellerLng == null) && l.getSeller() != null) {
+                sellerLat = l.getSeller().getLatitude();
+                sellerLng = l.getSeller().getLongitude();
+            }
+            if ((city == null || city.isBlank()) && l.getSeller() != null) {
+                city = l.getSeller().getCity();
+            }
             dto.setSellingMethod(l.getSellingMethod() != null ? l.getSellingMethod().name() : "DIRECT_BUY");
             dto.setPrice(l.getPrice());
             dto.setStartingBid(l.getStartingBid());
@@ -307,45 +396,107 @@ public class CommunityPostService {
             dto.setAuctionEndTime(l.getAuctionEndTime());
             dto.setBidsCount(l.getBidsCount());
 
+            String signedReelUrl = null;
+            if (l.getReelUrl() != null && !l.getReelUrl().isBlank()) {
+                String direct = mediaService.generatePresignedGetUrl(l.getReelUrl(), java.time.Duration.ofHours(4));
+                signedReelUrl = direct != null ? direct : l.getReelUrl();
+                dto.setVideoUrl(signedReelUrl);
+                dto.setReelUrl(signedReelUrl);
+            }
+
+            List<ListingSummaryDto.MediaItemDto> items = new ArrayList<>();
             if (l.getMedia() != null && !l.getMedia().isEmpty()) {
-                List<ListingSummaryDto.MediaItemDto> items = l.getMedia().stream()
-                        .filter(m -> m.getType() == ListingMedia.MediaType.IMAGE && !m.getUrl().contains("-thumb.jpg"))
-                        .sorted(Comparator.comparingInt(ListingMedia::getSortOrder))
-                        .map(m -> {
-                            String direct = mediaService.generatePresignedGetUrl(m.getUrl(), java.time.Duration.ofHours(4));
-                            return new ListingSummaryDto.MediaItemDto(
-                                    direct != null ? direct : m.getUrl(),
-                                    "IMAGE",
-                                    m.getSortOrder()
-                            );
-                        })
-                        .collect(Collectors.toList());
-                dto.setMediaItems(items);
-                dto.setMediaUrl(!items.isEmpty() ? items.get(0).getUrl() : null);
-                dto.setMediaType("IMAGE");
-            } else if (l.getPrimaryImageUrl() != null && !l.getPrimaryImageUrl().isBlank() && !l.getPrimaryImageUrl().contains("-thumb.jpg")) {
+                for (ListingMedia m : l.getMedia()) {
+                    if (m.getUrl() != null && !m.getUrl().contains("-thumb.jpg")) {
+                        String direct = mediaService.generatePresignedGetUrl(m.getUrl(), java.time.Duration.ofHours(4));
+                        String mediaType = (m.getType() != null && m.getType() == ListingMedia.MediaType.VIDEO) ? "VIDEO" : "IMAGE";
+                        items.add(new ListingSummaryDto.MediaItemDto(
+                                direct != null ? direct : m.getUrl(),
+                                mediaType,
+                                m.getSortOrder()
+                        ));
+                    }
+                }
+            }
+
+            // If listing has reelUrl and not already added from l.getMedia(), add it as a VIDEO item
+            if (signedReelUrl != null) {
+                final String finalReel = signedReelUrl;
+                boolean alreadyPresent = items.stream().anyMatch(i -> "VIDEO".equalsIgnoreCase(i.getType()) || finalReel.equals(i.getUrl()));
+                if (!alreadyPresent) {
+                    items.add(new ListingSummaryDto.MediaItemDto(finalReel, "VIDEO", items.size() + 1));
+                }
+            }
+
+            // If still empty and primaryImageUrl is present
+            if (items.isEmpty() && l.getPrimaryImageUrl() != null && !l.getPrimaryImageUrl().isBlank()) {
                 String direct = mediaService.generatePresignedGetUrl(l.getPrimaryImageUrl(), java.time.Duration.ofHours(4));
                 String finalUrl = direct != null ? direct : l.getPrimaryImageUrl();
-                dto.setMediaUrl(finalUrl);
+                items.add(new ListingSummaryDto.MediaItemDto(finalUrl, "IMAGE", 0));
+            }
+
+            dto.setMediaItems(items);
+
+            // Determine primary mediaUrl and mediaType
+            Optional<ListingSummaryDto.MediaItemDto> firstImage = items.stream().filter(i -> "IMAGE".equalsIgnoreCase(i.getType())).findFirst();
+            if (firstImage.isPresent()) {
+                dto.setMediaUrl(firstImage.get().getUrl());
                 dto.setMediaType("IMAGE");
-                dto.setMediaItems(List.of(new ListingSummaryDto.MediaItemDto(finalUrl, "IMAGE", 0)));
+            } else if (!items.isEmpty()) {
+                dto.setMediaUrl(items.get(0).getUrl());
+                dto.setMediaType(items.get(0).getType());
             } else {
                 dto.setMediaUrl(null);
                 dto.setMediaType("IMAGE");
-                dto.setMediaItems(Collections.emptyList());
             }
         } else if (post.getMediaUrl() != null && !post.getMediaUrl().isBlank()) {
             String raw = post.getMediaUrl().replaceAll("\\s+", "");
             String direct = mediaService.generatePresignedGetUrl(raw, java.time.Duration.ofHours(4));
             String finalUrl = direct != null ? direct : raw;
+            String mediaType = post.getMediaType() != null ? post.getMediaType() : "IMAGE";
             dto.setMediaUrl(finalUrl);
-            dto.setMediaType(post.getMediaType() != null ? post.getMediaType() : "IMAGE");
-            dto.setMediaItems(List.of(new ListingSummaryDto.MediaItemDto(finalUrl, dto.getMediaType(), 0)));
+            dto.setMediaType(mediaType);
+            if ("VIDEO".equalsIgnoreCase(mediaType)) {
+                dto.setVideoUrl(finalUrl);
+                dto.setReelUrl(finalUrl);
+            }
+            dto.setMediaItems(List.of(new ListingSummaryDto.MediaItemDto(finalUrl, mediaType, 0)));
         } else {
             dto.setMediaUrl(null);
             dto.setMediaType("IMAGE");
             dto.setMediaItems(Collections.emptyList());
         }
+
+        if (sellerLat == null || sellerLng == null) {
+            if (post.getAuthor() != null) {
+                sellerLat = post.getAuthor().getLatitude();
+                sellerLng = post.getAuthor().getLongitude();
+                if (city == null || city.isBlank()) {
+                    city = post.getAuthor().getCity();
+                }
+            }
+        }
+
+        dto.setLatitude(sellerLat);
+        dto.setLongitude(sellerLng);
+        dto.setLocality(locality);
+        dto.setCity(city);
+
+        Double dist = null;
+        if (userLat != null && userLng != null && sellerLat != null && sellerLng != null) {
+            dist = com.bidly.listing.service.ListingService.calculateHaversineDistanceKm(userLat, userLng, sellerLat, sellerLng);
+        } else if (currentUserId != null && sellerLat != null && sellerLng != null) {
+            Optional<User> curUser = userRepository.findById(currentUserId);
+            if (curUser.isPresent() && curUser.get().getLatitude() != null && curUser.get().getLongitude() != null) {
+                dist = com.bidly.listing.service.ListingService.calculateHaversineDistanceKm(
+                        curUser.get().getLatitude(),
+                        curUser.get().getLongitude(),
+                        sellerLat,
+                        sellerLng
+                );
+            }
+        }
+        dto.setDistanceKm(dist);
 
         if (likedPostIds != null && !likedPostIds.isEmpty()) {
             dto.setLikedByMe(likedPostIds.contains(post.getId()));
@@ -370,6 +521,75 @@ public class CommunityPostService {
         dto.setState(community.getState());
         dto.setMembersCount(community.getMembersCount());
         return dto;
+    }
+
+    // ─── Hide Post ("Not Interested") ───
+
+    /**
+     * Hides a post from the user's feed. Idempotent.
+     */
+    @Transactional
+    public Map<String, Object> hidePost(UUID userId, UUID postId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required");
+        }
+        postRepository.findById(postId)
+                .orElseThrow(() -> BidlyException.notFound("Post not found: " + postId));
+
+        if (!postHideRepository.existsByUserIdAndPostId(userId, postId)) {
+            postHideRepository.save(new PostHide(userId, postId));
+        }
+        log.info("[HIDE_POST] user={} post={}", userId, postId);
+        return Map.of("postId", postId.toString(), "hidden", true);
+    }
+
+    /**
+     * Unhides a previously hidden post. Idempotent.
+     */
+    @Transactional
+    public Map<String, Object> unhidePost(UUID userId, UUID postId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required");
+        }
+        postHideRepository.deleteByUserIdAndPostId(userId, postId);
+        log.info("[UNHIDE_POST] user={} post={}", userId, postId);
+        return Map.of("postId", postId.toString(), "hidden", false);
+    }
+
+    // ─── Restrict User ───
+
+    /**
+     * Restricts a user — their posts will be hidden from the requester's feed. Idempotent.
+     */
+    @Transactional
+    public Map<String, Object> restrictUser(UUID userId, UUID targetUserId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required");
+        }
+        if (userId.equals(targetUserId)) {
+            throw BidlyException.badRequest("You cannot restrict yourself");
+        }
+        userRepository.findById(targetUserId)
+                .orElseThrow(() -> BidlyException.notFound("User not found: " + targetUserId));
+
+        if (!userRestrictRepository.existsByUserIdAndRestrictedUserId(userId, targetUserId)) {
+            userRestrictRepository.save(new UserRestrict(userId, targetUserId));
+        }
+        log.info("[RESTRICT_USER] user={} restricted={}", userId, targetUserId);
+        return Map.of("restrictedUserId", targetUserId.toString(), "restricted", true);
+    }
+
+    /**
+     * Unrestricts a previously restricted user. Idempotent.
+     */
+    @Transactional
+    public Map<String, Object> unrestrictUser(UUID userId, UUID targetUserId) {
+        if (userId == null) {
+            throw BidlyException.unauthorized("Authentication required");
+        }
+        userRestrictRepository.deleteByUserIdAndRestrictedUserId(userId, targetUserId);
+        log.info("[UNRESTRICT_USER] user={} unrestricted={}", userId, targetUserId);
+        return Map.of("restrictedUserId", targetUserId.toString(), "restricted", false);
     }
 
     // No hardcoded seed data in code - only real user-created posts

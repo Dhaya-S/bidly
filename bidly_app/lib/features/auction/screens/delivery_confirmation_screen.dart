@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_theme.dart';
 import '../providers/order_provider.dart';
 
@@ -142,7 +144,14 @@ class _DeliveryConfirmationScreenState extends ConsumerState<DeliveryConfirmatio
                               color: const Color(0xFFF1F5F9),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.phone_iphone_rounded, color: Color(0xFF004E54), size: 30),
+                            clipBehavior: Clip.antiAlias,
+                            child: (order.primaryImageUrl != null && order.primaryImageUrl!.isNotEmpty)
+                                ? CachedNetworkImage(
+                                    imageUrl: ApiClient.resolveMediaUrl(order.primaryImageUrl!),
+                                    fit: BoxFit.cover,
+                                    errorWidget: (_, __, ___) => const Icon(Icons.inventory_2_outlined, color: Color(0xFF004E54), size: 28),
+                                  )
+                                : const Icon(Icons.inventory_2_outlined, color: Color(0xFF004E54), size: 28),
                           ),
                           const SizedBox(width: 12),
                           Expanded(

@@ -15,7 +15,10 @@ public interface ListingLikeRepository extends JpaRepository<ListingLike, UUID> 
 
     boolean existsByUserIdAndListingId(UUID userId, UUID listingId);
 
-    void deleteByUserIdAndListingId(UUID userId, UUID listingId);
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("DELETE FROM ListingLike l WHERE l.userId = :userId AND l.listingId = :listingId")
+    void deleteByUserIdAndListingId(@Param("userId") UUID userId, @Param("listingId") UUID listingId);
 
     long countByListingId(UUID listingId);
 

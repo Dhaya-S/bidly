@@ -179,6 +179,7 @@ class _RejectOfferBottomSheetState extends ConsumerState<RejectOfferBottomSheet>
           TextField(
             controller: _noteController,
             maxLines: 3,
+            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
             decoration: InputDecoration(
               hintText: 'Add a note (optional)...',
               hintStyle: const TextStyle(
@@ -213,6 +214,8 @@ class _RejectOfferBottomSheetState extends ConsumerState<RejectOfferBottomSheet>
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF004E54),
                 foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFF004E54),
+                disabledForegroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),

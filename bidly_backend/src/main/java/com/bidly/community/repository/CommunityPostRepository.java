@@ -32,9 +32,7 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, UU
     @Query("SELECT p FROM CommunityPost p LEFT JOIN p.listing l " +
            "WHERE p.community.id = :communityId " +
            "AND (l IS NULL OR (l.status = 'ACTIVE' " +
-           "AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP) " +
-           "AND (l.reelUrl IS NULL OR TRIM(l.reelUrl) = '' " +
-           "OR EXISTS (SELECT lm FROM ListingMedia lm WHERE lm.listing = l AND lm.type = com.bidly.listing.entity.ListingMedia.MediaType.IMAGE AND lm.url NOT LIKE '%-thumb.jpg%')))) " +
+           "AND (l.sellingMethod <> 'AUCTION' OR l.auctionEndTime IS NULL OR l.auctionEndTime > CURRENT_TIMESTAMP))) " +
            "ORDER BY p.createdAt DESC")
     Page<CommunityPost> findByCommunityIdOrderByCreatedAtDesc(UUID communityId, Pageable pageable);
 

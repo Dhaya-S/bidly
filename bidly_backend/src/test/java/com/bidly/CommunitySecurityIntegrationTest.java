@@ -8,9 +8,12 @@ import com.bidly.community.entity.Community;
 import com.bidly.community.entity.CommunityMember;
 import com.bidly.community.entity.CommunityPost;
 import com.bidly.community.repository.CommunityMemberRepository;
+import com.bidly.community.repository.CommunityMuteRepository;
 import com.bidly.community.repository.CommunityPostRepository;
 import com.bidly.community.repository.CommunityRepository;
+import com.bidly.community.repository.PostHideRepository;
 import com.bidly.community.repository.PostLikeRepository;
+import com.bidly.community.repository.UserRestrictRepository;
 import com.bidly.community.service.CommunityPostService;
 import com.bidly.community.service.CommunityService;
 import com.bidly.listing.dto.CreateListingRequest;
@@ -47,8 +50,11 @@ public class CommunitySecurityIntegrationTest {
 
     @Mock private CommunityRepository communityRepository;
     @Mock private CommunityMemberRepository memberRepository;
+    @Mock private CommunityMuteRepository communityMuteRepository;
     @Mock private CommunityPostRepository postRepository;
     @Mock private PostLikeRepository postLikeRepository;
+    @Mock private PostHideRepository postHideRepository;
+    @Mock private UserRestrictRepository userRestrictRepository;
     @Mock private UserRepository userRepository;
     @Mock private ListingRepository listingRepository;
     @Mock private ListingMediaRepository mediaRepository;
@@ -69,8 +75,8 @@ public class CommunitySecurityIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        communityService = new CommunityService(communityRepository, memberRepository, userRepository);
-        postService = new CommunityPostService(postRepository, communityRepository, memberRepository, postLikeRepository, userRepository, mediaService);
+        communityService = new CommunityService(communityRepository, memberRepository, communityMuteRepository, userRepository);
+        postService = new CommunityPostService(postRepository, communityRepository, memberRepository, postLikeRepository, postHideRepository, userRestrictRepository, userRepository, mediaService);
         listingService = new ListingService(
                 listingRepository,
                 mediaRepository,

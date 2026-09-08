@@ -483,9 +483,10 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
                 child: ElevatedButton(
                   onPressed: walletState.isAdding ? null : _handleAddMoney,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF90A4AE), // Muted dark blue-gray or active primary
+                    backgroundColor: const Color(0xFF004E54),
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFFB0BEC5),
+                    disabledBackgroundColor: const Color(0xFF004E54),
+                    disabledForegroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),

@@ -23,6 +23,7 @@ public class CommunityDto {
     private String userRole; // "ADMIN", "MEMBER", or null
     private boolean isAdmin;
     private boolean isJoined;
+    private boolean isMuted;
     private int unreadCount;
 
     public CommunityDto() {}
@@ -83,6 +84,9 @@ public class CommunityDto {
 
     public boolean isJoined() { return isJoined; }
     public void setJoined(boolean joined) { isJoined = joined; }
+
+    public boolean isMuted() { return isMuted; }
+    public void setMuted(boolean muted) { isMuted = muted; }
 
     public int getUnreadCount() { return unreadCount; }
     public void setUnreadCount(int unreadCount) { this.unreadCount = unreadCount; }

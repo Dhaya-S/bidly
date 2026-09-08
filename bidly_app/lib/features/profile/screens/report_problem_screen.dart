@@ -128,6 +128,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                 controller: _descriptionController,
                 maxLines: 5,
                 maxLength: 500,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: AppTheme.textPrimary),
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   hintText: 'Describe the problem in detail. Include order IDs, dates, or any relevant information...',

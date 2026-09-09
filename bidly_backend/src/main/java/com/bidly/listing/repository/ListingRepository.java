@@ -42,6 +42,8 @@ public interface ListingRepository extends JpaRepository<Listing, UUID>, JpaSpec
 
     long countBySellerIdAndStatus(UUID sellerId, Listing.ListingStatus status);
 
+    long countBySellerId(UUID sellerId);
+
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT l FROM Listing l WHERE l.id = :id")
     java.util.Optional<Listing> findByIdWithPessimisticLock(@Param("id") UUID id);
